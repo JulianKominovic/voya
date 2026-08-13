@@ -4,6 +4,8 @@ __pycache__/
 *.egg-info/
 .python-version
 .DS_Store
+.ruff_cache/
+.mypy_cache/
 
 python/models/
 python/.venv/

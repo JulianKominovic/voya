@@ -10,10 +10,11 @@ SILERO_ONNX = MODELS_DIR / "silero_vad.onnx"
 KOKORO_ONNX = MODELS_DIR / "kokoro-v1.0.onnx"
 KOKORO_VOICES = MODELS_DIR / "voices-v1.0.bin"
 
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
-WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
-WHISPER_COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "large-v3-turbo")
+WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cuda")
+WHISPER_COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "float16")
 WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "es")
+CUDA_DEVICE = int(os.environ.get("CUDA_DEVICE", "0"))
 
 VAD_THRESHOLD = float(os.environ.get("VAD_THRESHOLD", "0.5"))
 MIN_SPEECH_MS = int(os.environ.get("MIN_SPEECH_MS", "250"))
