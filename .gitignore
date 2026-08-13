@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.python-version
+.DS_Store
+
+python/models/
+python/.venv/
+
+node_modules/
+node/.env
