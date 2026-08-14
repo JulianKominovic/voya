@@ -12,29 +12,67 @@ log = logging.getLogger(__name__)
 
 CUDA_PROVIDER = "CUDAExecutionProvider"
 
+# ORT 1.27+ wants CUDA 13. CTranslate2 wheels still DT_NEED libcublas.so.12.
+_ORT_LIBS = (
+    "libcudart.so.13",
+    "libcublasLt.so.13",
+    "libcublas.so.13",
+    "libcurand.so.10",
+    "libcudnn.so.9",
+)
+_CT2_LIBS = (
+    "libcudart.so.12",
+    "libcublasLt.so.12",
+    "libcublas.so.12",
+)
 
-def _preload_cuda_runtime() -> None:
-    """Load the pip-provided CUDA/cuDNN libs before onnxruntime dlopens its provider.
 
-    onnxruntime-gpu does not search site-packages/nvidia/*/lib on Linux, so the
-    CUDA 13 runtime + cuDNN 9 must be registered in the process namespace first.
-    Loading by SONAME satisfies the provider lib's DT_NEEDED entries at session time.
+def _nvidia_root() -> Path:
+    return Path(sysconfig.get_paths()["purelib"]) / "nvidia"
+
+
+def _preload_libs(names: tuple[str, ...], *, required: bool = False) -> None:
+    """Load pip NVIDIA .so files by SONAME so dlopen finds them later.
+
+    onnxruntime-gpu / CTranslate2 do not search site-packages/nvidia/*/lib.
     """
-    base = Path(sysconfig.get_paths()["purelib"]) / "nvidia"
+    base = _nvidia_root()
     if not base.exists():
+        if required:
+            raise RuntimeError(
+                "CUDA pip libs missing under site-packages/nvidia. Run: uv sync"
+            )
         return
-    order = ("libcudart", "libcublasLt", "libcublas", "libcurand", "libcudnn")
-    for prefix in order:
-        for so in sorted(base.glob(f"*/lib/{prefix}.so*")):
-            try:
-                ctypes.CDLL(str(so))
-            except OSError as exc:
-                log.warning("could not preload %s: %s", so, exc)
+    missing: list[str] = []
+    for name in names:
+        matches = sorted(base.glob(f"*/lib/{name}"))
+        if not matches:
+            matches = sorted(
+                so
+                for so in base.glob(f"*/lib/{name}*")
+                if ".so" in so.name
+            )
+        if not matches:
+            missing.append(name)
+            continue
+        so = matches[0]
+        try:
+            ctypes.CDLL(str(so))
+        except OSError as exc:
+            log.warning("could not preload %s: %s", so, exc)
+            missing.append(name)
+    if required and missing:
+        raise RuntimeError(
+            "CTranslate2 needs CUDA 12 cuBLAS (libcublas.so.12). "
+            f"missing={missing}. On the 5080: uv sync "
+            "(nvidia-cublas-cu12 + nvidia-cuda-runtime-cu12). "
+            "Do not symlink .so.12 -> .so.13."
+        )
 
 
 def cuda_providers() -> list[tuple[str, dict[str, int]]]:
     """ONNX Runtime must run on CUDA. No CPU fallback."""
-    _preload_cuda_runtime()
+    _preload_libs(_ORT_LIBS)
     available = ort.get_available_providers()
     if CUDA_PROVIDER not in available:
         raise RuntimeError(
@@ -54,3 +92,4 @@ def require_whisper_cuda(device: str) -> None:
         raise RuntimeError(
             f"WHISPER_DEVICE={device!r}; only cuda is supported on the 5080."
         )
+    _preload_libs(_CT2_LIBS, required=True)
