@@ -12,3 +12,6 @@ python/.venv/
 
 node_modules/
 node/.env
+node/logs/
+node/.npm-cache/
+node/.npm-cache

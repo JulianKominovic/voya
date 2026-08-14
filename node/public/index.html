@@ -94,6 +94,7 @@
         padding: 12px;
         margin-bottom: 12px;
       }
+      #question { color: var(--warn); min-height: 36px; }
       #log {
         height: 220px;
         overflow: auto;
@@ -110,7 +111,7 @@
   <body>
     <main>
       <h1>Voya — voice + LLM</h1>
-      <p class="lead">Chrome + headphones. Mic → Whisper → OpenRouter → Kokoro. Echo TTS is debug only.</p>
+      <p class="lead">Chrome + headphones. Mic always on (barge-in). Whisper → orchestrator → Kokoro.</p>
       <div class="row">
         <button id="talk" type="button">Speak</button>
         <button id="stop" class="ghost" type="button" disabled>Stop</button>
@@ -130,6 +131,7 @@
         <div class="metric"><span>speak → primer chunk</span><strong id="lat-tts">—</strong></div>
       </div>
       <div class="out" id="transcript">—</div>
+      <div class="out" id="question" title="pending question">—</div>
       <div class="out" id="assistant">—</div>
       <div id="log"></div>
     </main>

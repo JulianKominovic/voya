@@ -14,6 +14,7 @@ const stateEl = $("state");
 const logEl = $("log");
 const transcriptEl = $("transcript");
 const assistantEl = $("assistant");
+const questionEl = $("question");
 const latSttEl = $("lat-stt");
 const latLlmEl = $("lat-llm");
 const latTtsEl = $("lat-tts");
@@ -42,7 +43,7 @@ function setState(name) {
     stateEl.className = "pill";
     if (name === "listening" || name === "speaking")
         stateEl.classList.add("on");
-    if (name === "speech" || name === "transcribing")
+    if (name === "user_speaking" || name === "speech" || name === "transcribing")
         stateEl.classList.add("speech");
     if (name === "thinking")
         stateEl.classList.add("think");
@@ -162,7 +163,22 @@ function connectWs() {
 }
 function onJson(msg) {
     if (msg.type === "ready") {
-        log(`ready echo=${msg.echo} llm=${msg.llm} model=${msg.model || ""}`);
+        log(`ready orch=${msg.orchestrator || ""} agentic=${msg.agentic || ""}`);
+        return;
+    }
+    if (msg.type === "state") {
+        if (msg.state)
+            setState(msg.state);
+        questionEl.textContent = msg.pending_question || "—";
+        return;
+    }
+    if (msg.type === "question_asked") {
+        questionEl.textContent = msg.text || "—";
+        log(`question_asked ${msg.id} ${msg.text}`);
+        return;
+    }
+    if (msg.type === "question_resolved") {
+        log(`question_resolved ${msg.id} ${msg.status} ${msg.text || ""}`);
         return;
     }
     if (msg.type === "error") {
@@ -173,13 +189,11 @@ function onJson(msg) {
     if (msg.type === "speech_start") {
         player?.stop();
         awaitingFirstAudio = false;
-        setState("speech");
         log("speech_start");
         return;
     }
     if (msg.type === "speech_end") {
         tSpeechEnd = performance.now();
-        setState("transcribing");
         log(`speech_end duration_ms=${msg.duration_ms}`);
         return;
     }
@@ -188,24 +202,15 @@ function onJson(msg) {
         latSttEl.textContent = `${elapsed} ms`;
         transcriptEl.textContent = msg.text || "(empty)";
         log(`transcript stt_ms=${msg.stt_ms} ${msg.text}`);
-        if (!msg.text?.trim()) {
-            if (capturing)
-                setState("listening");
+        if (msg.text?.trim()) {
+            tTranscript = performance.now();
+            awaitingFirstAudio = true;
+            assistantBuf = "";
+            assistantEl.textContent = "—";
+            if (echoBox.checked)
+                tSpeak = tTranscript;
             else
-                setState("idle");
-            return;
-        }
-        tTranscript = performance.now();
-        awaitingFirstAudio = true;
-        assistantBuf = "";
-        assistantEl.textContent = "—";
-        if (echoBox.checked) {
-            tSpeak = tTranscript;
-            setState("speaking");
-        }
-        else {
-            tSpeak = 0;
-            setState("thinking");
+                tSpeak = 0;
         }
         return;
     }
@@ -213,11 +218,9 @@ function onJson(msg) {
         assistantBuf = assistantBuf ? `${assistantBuf} ${msg.text}` : msg.text || "";
         assistantEl.textContent = assistantBuf;
         log(`assistant ${msg.text}`);
-        setState("speaking");
         return;
     }
     if (msg.type === "audio_start") {
-        setState("speaking");
         log(`audio_start id=${msg.id} ${msg.sample_rate} Hz`);
         return;
     }
@@ -227,12 +230,6 @@ function onJson(msg) {
     }
     if (msg.type === "turn_end") {
         awaitingFirstAudio = false;
-        if (uiState === "error")
-            return;
-        if (capturing)
-            setState("listening");
-        else
-            setState("idle");
     }
 }
 async function startMic() {
@@ -267,6 +264,12 @@ async function startMic() {
     talkBtn.disabled = true;
     stopBtn.disabled = false;
     setState("listening");
+    if (ws?.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: "mic", on: true }));
+    else {
+        const sock = ws;
+        sock?.addEventListener("open", () => sock.send(JSON.stringify({ type: "mic", on: true })), { once: true });
+    }
     log(`mic ${captureCtx.sampleRate} Hz → 16000, play ${playCtx.sampleRate} Hz`);
 }
 function stopMic() {
@@ -278,6 +281,8 @@ function stopMic() {
     mediaStream = undefined;
     talkBtn.disabled = false;
     stopBtn.disabled = true;
+    if (ws?.readyState === WebSocket.OPEN)
+        ws.send(JSON.stringify({ type: "mic", on: false }));
     if (uiState !== "speaking" && uiState !== "thinking")
         setState("idle");
     log("mic stopped");

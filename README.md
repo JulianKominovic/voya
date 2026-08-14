@@ -1,16 +1,16 @@
 # Voya — Voice MVP
 
-Speak into the mic, watch the transcript, hear the same text through Kokoro. No LLM or tools.
+Speak into the mic. Node runs the turn machine (barge-in, orchestrator, TTS). Python is CUDA audio only.
 
 Python is **CUDA-only** (RTX 5080). Node + Chrome can live on the Mac.
 
 ```
 HTML (Chrome)  →  Node :8787  →  Python :8765  (5080, CUDA)
-  PCM 16 kHz         proxy          Silero + Whisper
-  PCM 24 kHz         echo TTS       Kokoro stream
+  PCM 16 kHz         proxy+brain    Silero + Whisper
+  PCM 24 kHz         TTS stream     Kokoro
 ```
 
-Use **headphones**. Node stops forwarding the mic while TTS is playing, but the speaker still leaks into the mic.
+Use **headphones**. The mic is always forwarded (needed for barge-in). Speakers still leak into the mic.
 
 Chrome, not Safari (Safari fights `AudioContext.sampleRate`).
 
@@ -94,9 +94,11 @@ TTS_URL=ws://<ip-5080>:8765/ws/tts npm start
 | tts | `ws://127.0.0.1:8765/ws/tts` | `TTS_URL` |
 | Whisper | `large-v3-turbo` / `cuda` / `float16` / `es` | `WHISPER_MODEL`, `WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE`, `WHISPER_LANGUAGE` |
 | GPU | device `0` | `CUDA_DEVICE` |
-| VAD | threshold `0.5`, min speech 250 ms, silence 700 ms, pre-roll 300 ms | `VAD_THRESHOLD`, `MIN_SPEECH_MS`, `MIN_SILENCE_MS`, `PREROLL_MS` |
+| VAD | threshold `0.5`, min speech 350 ms, silence 700 ms, pre-roll 300 ms | `VAD_THRESHOLD`, `MIN_SPEECH_MS`, `MIN_SILENCE_MS`, `PREROLL_MS` |
 | TTS | engine `kokoro`, voice `ef_dora`, lang `es` | `TTS_ENGINE`, `TTS_VOICE`, `TTS_LANG`, `TTS_MODEL` |
 | models | `python/models` | `MODELS_DIR` |
+| LLM | OpenRouter. Conversational: `ORCHESTRATOR_MODEL` (alias `OPENROUTER_MODEL`). Agentic+minions: `AGENTIC_MODEL` (defaults to the conversational one). Default `deepseek/deepseek-chat-v3.1`. Set in `node/.env`. | `OPENROUTER_API_KEY`, `ORCHESTRATOR_MODEL`, `AGENTIC_MODEL` |
+| FLOW | question 60 min, ask 10 min | `QUESTION_TIMEOUT_MS`, `ASK_TIMEOUT_MS` |
 
 A `WHISPER_DEVICE` other than `cuda` aborts the process.
 
@@ -108,5 +110,7 @@ A `WHISPER_DEVICE` other than `cuda` aborts the process.
 ## Layout
 
 - `python/speech_server/` — one FastAPI, `GET /health`, `WS /ws/speech-in`, `WS /ws/tts`
-- `node/src/server.ts` — static files + one client WS + proxy to Python
+- `node/src/server.ts` — HTTP + client WS + Python reconnect
+- `node/src/session.ts` — voice state machine, barge-in, TTS one-in-flight
+- `node/src/agents.ts` — orchestrator / agentic / minions
 - `node/src/app.ts` — Chrome UI (ScriptProcessor, not AudioWorklet); compiled to `public/app.js`

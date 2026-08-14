@@ -8,5 +8,6 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["src/server.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/app.ts"]
 }

@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+Use pnpm instead of npm or yarn.

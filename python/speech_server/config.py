@@ -17,7 +17,7 @@ WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "es")
 CUDA_DEVICE = int(os.environ.get("CUDA_DEVICE", "0"))
 
 VAD_THRESHOLD = float(os.environ.get("VAD_THRESHOLD", "0.5"))
-MIN_SPEECH_MS = int(os.environ.get("MIN_SPEECH_MS", "250"))
+MIN_SPEECH_MS = int(os.environ.get("MIN_SPEECH_MS", "350"))
 MIN_SILENCE_MS = int(os.environ.get("MIN_SILENCE_MS", "700"))
 PREROLL_MS = int(os.environ.get("PREROLL_MS", "300"))
 

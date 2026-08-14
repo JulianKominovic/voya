@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from collections.abc import AsyncIterator
 
 import numpy as np
@@ -18,6 +19,13 @@ log = logging.getLogger(__name__)
 
 DEFAULT_SPEAKER = "Serena"
 CHUNK_SIZE = 8  # codec steps; ~0.67 s of audio at 12 Hz
+# Missed EOS otherwise fills the talker StaticCache (default 512 ≈ 36 s of noise).
+MAX_NEW_TOKENS = 192  # ~16 s at 12 Hz
+
+
+def _max_new_tokens(text: str) -> int:
+    return max(48, min(MAX_NEW_TOKENS, len(text) * 3 + 36))
+
 
 _LANG = {
     "es": "Spanish",
@@ -111,19 +119,51 @@ class QwenTTS:
         language = self._language(lang or self.default_lang)
         loop = asyncio.get_running_loop()
         out: asyncio.Queue[np.ndarray | BaseException | None] = asyncio.Queue()
+        cancelled = threading.Event()
+        max_tokens = _max_new_tokens(text)
 
         def _produce() -> None:
+            steps = 0
+            peak = 0.0
             try:
-                for chunk, sr, _timing in self.model.generate_custom_voice_streaming(
+                import torch
+
+                torch.cuda.synchronize()
+                for chunk, sr, timing in self.model.generate_custom_voice_streaming(
                     text=text,
                     language=language,
                     speaker=speaker,
                     do_sample=False,
                     chunk_size=CHUNK_SIZE,
+                    max_new_tokens=max_tokens,
                 ):
+                    if cancelled.is_set():
+                        log.info("qwen cancel steps=%d peak=%.3f", steps, peak)
+                        return
+                    steps = int(timing.get("total_steps_so_far") or steps)
                     samples = _pcm(chunk, sr)
-                    if samples.size:
-                        asyncio.run_coroutine_threadsafe(out.put(samples), loop).result()
+                    if not samples.size:
+                        continue
+                    if not np.isfinite(samples).all():
+                        raise RuntimeError("qwen non-finite pcm")
+                    peak = max(peak, float(np.max(np.abs(samples))))
+                    asyncio.run_coroutine_threadsafe(out.put(samples), loop).result()
+                if steps >= max_tokens - CHUNK_SIZE:
+                    log.warning(
+                        "qwen token cap steps=%d max=%d chars=%d peak=%.3f",
+                        steps,
+                        max_tokens,
+                        len(text),
+                        peak,
+                    )
+                else:
+                    log.info(
+                        "qwen done steps=%d max=%d chars=%d peak=%.3f",
+                        steps,
+                        max_tokens,
+                        len(text),
+                        peak,
+                    )
                 asyncio.run_coroutine_threadsafe(out.put(None), loop).result()
             except Exception as exc:
                 asyncio.run_coroutine_threadsafe(out.put(exc), loop).result()
@@ -140,6 +180,7 @@ class QwenTTS:
                     yield item
                 await infer
             except BaseException:
+                cancelled.set()
                 if not infer.done():
                     try:
                         await asyncio.shield(infer)
