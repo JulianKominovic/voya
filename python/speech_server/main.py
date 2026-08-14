@@ -15,6 +15,7 @@ from speech_server.config import (
     CUDA_DEVICE,
     KOKORO_ONNX,
     KOKORO_VOICES,
+    MIN_SILENCE_MS,
     MODELS_DIR,
     SILERO_ONNX,
     TTS_LANG,
@@ -139,7 +140,8 @@ async def speech_in(ws: WebSocket) -> None:
         await _send_json(ws, {"type": "error", "message": f"stt load: {exc}"})
         await ws.close()
         return
-    vad = StreamingVAD(engine=SileroOnnx())
+    vad = StreamingVAD(engine=STATE["vad"])
+    vad.reset()
     queue: asyncio.Queue[SpeechSegment | None] = asyncio.Queue()
 
     async def transcribe_loop() -> None:
@@ -170,29 +172,14 @@ async def speech_in(ws: WebSocket) -> None:
             except Exception:
                 return
 
-    worker = asyncio.create_task(transcribe_loop())
-    try:
-        while True:
-            message = await ws.receive()
-            if message["type"] == "websocket.disconnect":
-                break
-            data = message.get("bytes")
-            if data is None:
-                continue
-            samples = s16le_to_float32(data)
-            t0 = time.perf_counter()
-            events = list(vad.feed(samples))
-            vad_ms = (time.perf_counter() - t0) * 1000
-            for kind, seg in events:
-                if kind == "speech_start":
-                    log.info("speech_start vad_ms=%.2f", vad_ms)
-                    await _send_json(ws, {"type": "speech_start", "t": now_s()})
-                elif kind == "speech_end" and seg is not None:
-                    log.info(
-                        "speech_end duration_ms=%d vad_ms=%.2f",
-                        seg.duration_ms,
-                        vad_ms,
-                    )
+    async def emit(events: list[tuple[str, SpeechSegment | None]], vad_ms: float = 0.0) -> None:
+        for kind, seg in events:
+            if kind == "speech_start":
+                log.info("speech_start vad_ms=%.2f", vad_ms)
+                await _send_json(ws, {"type": "speech_start", "t": now_s()})
+            elif kind == "speech_end" and seg is not None:
+                log.info("speech_end duration_ms=%d vad_ms=%.2f", seg.duration_ms, vad_ms)
+                try:
                     await _send_json(
                         ws,
                         {
@@ -201,12 +188,49 @@ async def speech_in(ws: WebSocket) -> None:
                             "duration_ms": seg.duration_ms,
                         },
                     )
-                    await queue.put(seg)
+                except Exception:
+                    pass
+                await queue.put(seg)
+
+    worker = asyncio.create_task(transcribe_loop())
+    recv: asyncio.Task = asyncio.create_task(ws.receive())
+    try:
+        while True:
+            timeout = MIN_SILENCE_MS / 1000 if vad._in_speech else None
+            done, _ = await asyncio.wait({recv}, timeout=timeout)
+            if recv not in done:
+                await emit(list(vad.flush()))
+                continue
+            try:
+                message = recv.result()
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                log.exception("speech-in receive failed")
+                break
+            if message["type"] == "websocket.disconnect":
+                break
+            recv = asyncio.create_task(ws.receive())
+            data = message.get("bytes")
+            if data is None:
+                continue
+            samples = s16le_to_float32(data)
+            t0 = time.perf_counter()
+            events = list(vad.feed(samples))
+            await emit(events, (time.perf_counter() - t0) * 1000)
     except WebSocketDisconnect:
         pass
     finally:
+        if not recv.done():
+            recv.cancel()
+            try:
+                await recv
+            except (asyncio.CancelledError, Exception):
+                pass
+        for _, seg in vad.flush():
+            if seg is not None:
+                await queue.put(seg)
         await queue.put(None)
-        worker.cancel()
         try:
             await worker
         except (asyncio.CancelledError, Exception):

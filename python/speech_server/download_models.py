@@ -8,8 +8,10 @@ from urllib.request import urlretrieve
 
 from speech_server.config import KOKORO_ONNX, KOKORO_VOICES, MODELS_DIR, SILERO_ONNX
 
+# silero-vad v5.1.2 (512-sample windows). Do not use master — v6 changed the ONNX I/O.
 SILERO_URL = (
-    "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
+    "https://github.com/snakers4/silero-vad/raw/"
+    "6478567951ae5c9979ad7b234185b5515f4be7a1/src/silero_vad/data/silero_vad.onnx"
 )
 KOKORO_URL = (
     "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx"

@@ -9,6 +9,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@openrouter/sdk": "^1.2.34",
     "ws": "^8.18.3"
   }
 }

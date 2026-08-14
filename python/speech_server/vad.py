@@ -144,7 +144,18 @@ class StreamingVAD:
         self._silence_run += 1
         if self._silence_run < self.min_silence_windows:
             return
-        audio = np.concatenate(self._utterance) if self._utterance else window
+        yield from self._close(window)
+
+    def flush(self) -> Iterator[tuple[str, SpeechSegment | None]]:
+        if not self._in_speech:
+            return
+        yield from self._close()
+
+    def _close(self, fallback: np.ndarray | None = None) -> Iterator[tuple[str, SpeechSegment | None]]:
+        audio = np.concatenate(self._utterance) if self._utterance else fallback
+        if audio is None or audio.size == 0:
+            self.reset()
+            return
         duration_ms = int(round(audio.size / SAMPLE_RATE_IN * 1000))
         self.engine.reset()
         self._utterance.clear()

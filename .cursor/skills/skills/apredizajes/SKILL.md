@@ -1,18 +1,18 @@
 ---
 name: apredizajes
-description: En este archivo se encuentran los apredizajes recaudados de los agentes. Aca escribimos errores que se han cometido y cómo se corrigieron o approaches que tomó el modelo de lenguaje pero no fueron los adecuados. Este archivo es mantenido y actualizado por el agente.
+description: This file holds the lessons collected from the agents. Here we write errors that were made and how they were fixed, or approaches the language model took that were not appropriate. This file is maintained and updated by the agent.
 ---
 
-# Aprendizajes
+# Lessons
 
-En este archivo se encuentran los apredizajes recaudados de los agentes. Aca escribimos errores que se han cometido y cómo se corrigieron o approaches que tomó el modelo de lenguaje pero no fueron los adecuados. Este archivo es mantenido y actualizado por el agente.
+This file holds the lessons collected from the agents. Here we write errors that were made and how they were fixed, or approaches the language model took that were not appropriate. This file is maintained and updated by the agent.
 
-## Errores
+## Errors
 
 ### Python defaulted to CPU
 
-#### El MVP de voz arrancó Whisper en `cpu`/`int8`/`small` y Silero/Kokoro con `CPUExecutionProvider`. Python corre en la RTX 5080: todo el audio (VAD, STT, TTS) tiene que ir por CUDA, sin fallback a CPU.
+#### The voice MVP started Whisper on `cpu`/`int8`/`small` and Silero/Kokoro with `CPUExecutionProvider`. Python runs on the RTX 5080: all audio (VAD, STT, TTS) must go through CUDA, no CPU fallback.
 
-#### Corrección
+#### Fix
 
-Defaults `WHISPER_MODEL=large-v3-turbo`, `WHISPER_DEVICE=cuda`, `WHISPER_COMPUTE_TYPE=float16`. ONNX con `onnxruntime-gpu` y `CUDAExecutionProvider` (Silero + Kokoro vía `Kokoro.from_session`). Si no hay CUDA, el proceso aborta. No instalar el paquete CPU `onnxruntime` (conflicto con `onnxruntime-gpu`; override en `pyproject.toml`).
+Defaults `WHISPER_MODEL=large-v3-turbo`, `WHISPER_DEVICE=cuda`, `WHISPER_COMPUTE_TYPE=float16`. ONNX with `onnxruntime-gpu` and `CUDAExecutionProvider` (Silero + Kokoro via `Kokoro.from_session`). If there's no CUDA, the process aborts. Don't install the CPU package `onnxruntime` (conflict with `onnxruntime-gpu`; override in `pyproject.toml`).

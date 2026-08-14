@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Voya — MVP voz</title>
+    <title>Voya — Voice MVP</title>
     <style>
       :root {
         color-scheme: dark;
@@ -60,6 +60,7 @@
       }
       .pill.on { color: var(--accent); border-color: #245c48; }
       .pill.speech { color: var(--warn); border-color: #5c4a20; }
+      .pill.think { color: #93c5fd; border-color: #1e3a5f; }
       .pill.err { color: var(--err); border-color: #5c2020; }
       label { color: var(--muted); display: flex; gap: 6px; align-items: center; }
       textarea, input[type="text"] {
@@ -73,7 +74,7 @@
       }
       .metrics {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: 1fr 1fr 1fr;
         gap: 8px;
         margin: 16px 0;
       }
@@ -108,26 +109,28 @@
   </head>
   <body>
     <main>
-      <h1>Voya — echo de voz</h1>
-      <p class="lead">Chrome + auriculares. Mic 16 kHz → Silero/Whisper → Kokoro 24 kHz. Sin LLM.</p>
+      <h1>Voya — voice + LLM</h1>
+      <p class="lead">Chrome + headphones. Mic → Whisper → OpenRouter → Kokoro. Echo TTS is debug only.</p>
       <div class="row">
-        <button id="talk" type="button">Hablar</button>
-        <button id="stop" class="ghost" type="button" disabled>Detener</button>
+        <button id="talk" type="button">Speak</button>
+        <button id="stop" class="ghost" type="button" disabled>Stop</button>
         <span id="state" class="pill">idle</span>
-        <label><input id="echo" type="checkbox" checked /> echo TTS</label>
+        <label><input id="echo" type="checkbox" /> echo TTS</label>
       </div>
       <div class="row">
-        <textarea id="synth-text" rows="2" placeholder="Sintetiza esto…">Hola. Esto es una prueba de Kokoro en español.</textarea>
+        <textarea id="synth-text" rows="2" placeholder="Synthesize this…">Hello. This is a Kokoro test.</textarea>
       </div>
       <div class="row">
-        <button id="synth" class="ghost" type="button">Sintetizar</button>
-        <button id="cancel" class="ghost" type="button">Cancelar TTS</button>
+        <button id="synth" class="ghost" type="button">Synthesize</button>
+        <button id="cancel" class="ghost" type="button">Cancelar</button>
       </div>
       <div class="metrics">
         <div class="metric"><span>speech_end → transcript</span><strong id="lat-stt">—</strong></div>
+        <div class="metric"><span>transcript → first chunk</span><strong id="lat-llm">—</strong></div>
         <div class="metric"><span>speak → primer chunk</span><strong id="lat-tts">—</strong></div>
       </div>
       <div class="out" id="transcript">—</div>
+      <div class="out" id="assistant">—</div>
       <div id="log"></div>
     </main>
     <script src="/app.js"></script>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 
@@ -28,6 +29,7 @@ class TTS:
         self.kokoro = Kokoro.from_session(session, str(KOKORO_VOICES))
         self.default_voice = TTS_VOICE
         self.default_lang = TTS_LANG
+        self._lock = asyncio.Lock()
         self._g2p: dict[str, object] = {}
         try:
             from misaki.espeak import EspeakG2P
@@ -69,12 +71,23 @@ class TTS:
         except Exception as exc:
             log.warning("g2p failed (%s), kokoro tokenizer: %s", lang, exc)
             phonemes = None
-        if phonemes:
-            gen = self.kokoro.create_stream(phonemes, voice=voice, lang=lang, is_phonemes=True)
-        else:
-            gen = self.kokoro.create_stream(text, voice=voice, lang=lang)
-        async for samples, _sr in gen:
-            yield np.asarray(samples, dtype=np.float32)
+
+        def _create() -> tuple[np.ndarray, int]:
+            if phonemes:
+                return self.kokoro.create(phonemes, voice=voice, lang=lang, is_phonemes=True)
+            return self.kokoro.create(text, voice=voice, lang=lang)
+
+        async with self._lock:
+            infer = asyncio.create_task(asyncio.to_thread(_create))
+            try:
+                samples, _sr = await infer
+            except asyncio.CancelledError:
+                try:
+                    await asyncio.shield(infer)
+                except Exception:
+                    pass
+                raise
+        yield np.asarray(samples, dtype=np.float32)
 
 
 def iter_pcm_frames(samples: np.ndarray, frame: int = TTS_FRAME) -> list[np.ndarray]:

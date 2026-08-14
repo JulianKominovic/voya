@@ -1,8 +1,8 @@
-# Voya — MVP de voz
+# Voya — Voice MVP
 
-Hablar por el mic, ver la transcripción, oír el mismo texto por Kokoro. Sin LLM ni tools.
+Speak into the mic, watch the transcript, hear the same text through Kokoro. No LLM or tools.
 
-Python es **solo CUDA** (RTX 5080). Node + Chrome pueden vivir en la Mac.
+Python is **CUDA-only** (RTX 5080). Node + Chrome can live on the Mac.
 
 ```
 HTML (Chrome)  →  Node :8787  →  Python :8765  (5080, CUDA)
@@ -10,26 +10,26 @@ HTML (Chrome)  →  Node :8787  →  Python :8765  (5080, CUDA)
   PCM 24 kHz         echo TTS       Kokoro stream
 ```
 
-Usá **auriculares**. Node deja de forwardear el mic mientras hay TTS, pero el parlante igual se cuela al mic.
+Use **headphones**. Node stops forwarding the mic while TTS is playing, but the speaker still leaks into the mic.
 
-Chrome, no Safari (Safari pelea `AudioContext.sampleRate`).
+Chrome, not Safari (Safari fights `AudioContext.sampleRate`).
 
-## Requisitos
+## Requirements
 
 **5080 (Python)**
 
-- NVIDIA driver reciente (Blackwell / sm_120)
+- Recent NVIDIA driver (Blackwell / sm_120)
 - [uv](https://docs.astral.sh/uv/)
-- `espeak-ng` (G2P español): `sudo apt install espeak-ng` o equivalente
-- `onnxruntime-gpu` (no el paquete CPU `onnxruntime`)
+- `espeak-ng` (Spanish G2P): `sudo apt install espeak-ng` or equivalent
+- `onnxruntime-gpu` (not the CPU package `onnxruntime`)
 
-**Mac (Node + mic)** — o la misma máquina si el mic está ahí
+**Mac (Node + mic)** — or the same machine if the mic is there
 
 - Node 18+, Chrome
 
-## Correr
+## Run
 
-En la 5080:
+On the 5080:
 
 ```bash
 cd python
@@ -38,9 +38,9 @@ uv run python -m speech_server.download_models
 uv run uvicorn speech_server.main:app --host 0.0.0.0 --port 8765
 ```
 
-Arranca en CUDA o falla. No hay fallback a CPU.
+Starts on CUDA or fails. No CPU fallback.
 
-En la Mac (o local):
+On the Mac (or local):
 
 ```bash
 cd node
@@ -50,18 +50,18 @@ TTS_URL=ws://<ip-5080>:8765/ws/tts \
   npm start
 ```
 
-Si Node corre en la misma máquina que Python, `npm start` alcanza (defaults a `127.0.0.1:8765`).
+If Node runs on the same machine as Python, `npm start` is enough (defaults to `127.0.0.1:8765`).
 
 Chrome → [http://127.0.0.1:8787](http://127.0.0.1:8787)
 
-1. **Sintetizar** una frase — valida Kokoro CUDA + playback 24 kHz.
-2. Auriculares → **Hablar**.
+1. **Synthesize** a phrase — validates Kokoro CUDA + 24 kHz playback.
+2. Headphones → **Speak**.
 
-Primera corrida baja Whisper `large-v3-turbo` (cache Hugging Face) y Kokoro + Silero a `python/models/`.
+First run downloads Whisper `large-v3-turbo` (Hugging Face cache) and Kokoro + Silero to `python/models/`.
 
-`GET http://<ip-5080>:8765/health` — `vad_providers` / `tts_providers` tienen que incluir `CUDAExecutionProvider`. `stt` pasa a true cuando termina de cargar Whisper.
+`GET http://<ip-5080>:8765/health` — `vad_providers` / `tts_providers` must include `CUDAExecutionProvider`. `stt` turns true once Whisper finishes loading.
 
-## Puertos y env
+## Ports and env
 
 | | default | env |
 |---|---|---|
@@ -71,19 +71,19 @@ Primera corrida baja Whisper `large-v3-turbo` (cache Hugging Face) y Kokoro + Si
 | tts | `ws://127.0.0.1:8765/ws/tts` | `TTS_URL` |
 | Whisper | `large-v3-turbo` / `cuda` / `float16` / `es` | `WHISPER_MODEL`, `WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE`, `WHISPER_LANGUAGE` |
 | GPU | device `0` | `CUDA_DEVICE` |
-| VAD | umbral `0.5`, min habla 250 ms, silencio 700 ms, pre-roll 300 ms | `VAD_THRESHOLD`, `MIN_SPEECH_MS`, `MIN_SILENCE_MS`, `PREROLL_MS` |
-| TTS | voz `ef_dora`, lang `es` | `TTS_VOICE`, `TTS_LANG` |
-| modelos | `python/models` | `MODELS_DIR` |
+| VAD | threshold `0.5`, min speech 250 ms, silence 700 ms, pre-roll 300 ms | `VAD_THRESHOLD`, `MIN_SPEECH_MS`, `MIN_SILENCE_MS`, `PREROLL_MS` |
+| TTS | voice `ef_dora`, lang `es` | `TTS_VOICE`, `TTS_LANG` |
+| models | `python/models` | `MODELS_DIR` |
 
-`WHISPER_DEVICE` distinto de `cuda` aborta el proceso.
+A `WHISPER_DEVICE` other than `cuda` aborts the process.
 
 ## Audio
 
-- Mic → Python: PCM s16le mono **16 kHz**. Chunks ~20–40 ms; Silero reagrupa a 512 samples (32 ms).
-- TTS → browser: PCM s16le mono **24 kHz**. WebSocket: binario = PCM, texto = JSON.
+- Mic → Python: PCM s16le mono **16 kHz**. Chunks ~20–40 ms; Silero regroups into 512 samples (32 ms).
+- TTS → browser: PCM s16le mono **24 kHz**. WebSocket: binary = PCM, text = JSON.
 
 ## Layout
 
-- `python/speech_server/` — un FastAPI, `GET /health`, `WS /ws/speech-in`, `WS /ws/tts`
-- `node/src/server.mjs` — estáticos + un WS de cliente + proxy a Python
-- `node/public/` — HTML mínimo (ScriptProcessor, no AudioWorklet)
+- `python/speech_server/` — one FastAPI, `GET /health`, `WS /ws/speech-in`, `WS /ws/tts`
+- `node/src/server.mjs` — static files + one client WS + proxy to Python
+- `node/public/` — minimal HTML (ScriptProcessor, not AudioWorklet)

@@ -8,7 +8,9 @@ const echoBox = $("echo");
 const stateEl = $("state");
 const logEl = $("log");
 const transcriptEl = $("transcript");
+const assistantEl = $("assistant");
 const latSttEl = $("lat-stt");
+const latLlmEl = $("lat-llm");
 const latTtsEl = $("lat-tts");
 const synthText = $("synth-text");
 
@@ -21,8 +23,10 @@ let capturing = false;
 let player;
 let tSpeechEnd = 0;
 let tSpeak = 0;
+let tTranscript = 0;
 let awaitingFirstAudio = false;
 let uiState = "idle";
+let assistantBuf = "";
 
 function log(line) {
   const t = new Date().toISOString().slice(11, 23);
@@ -36,6 +40,7 @@ function setState(name) {
   stateEl.className = "pill";
   if (name === "listening" || name === "speaking") stateEl.classList.add("on");
   if (name === "speech" || name === "transcribing") stateEl.classList.add("speech");
+  if (name === "thinking") stateEl.classList.add("think");
   if (name === "error") stateEl.classList.add("err");
 }
 
@@ -125,9 +130,16 @@ function connectWs() {
     if (typeof ev.data !== "string") {
       if (awaitingFirstAudio) {
         awaitingFirstAudio = false;
-        const ms = Math.round(performance.now() - tSpeak);
-        latTtsEl.textContent = `${ms} ms`;
-        log(`tts_first_chunk_ms=${ms}`);
+        if (tSpeak) {
+          const ms = Math.round(performance.now() - tSpeak);
+          latTtsEl.textContent = `${ms} ms`;
+          log(`tts_first_chunk_ms=${ms}`);
+        }
+        if (tTranscript) {
+          const ms = Math.round(performance.now() - tTranscript);
+          latLlmEl.textContent = `${ms} ms`;
+          log(`turn_first_chunk_ms=${ms}`);
+        }
       }
       player?.push(s16ToFloat(ev.data));
       return;
@@ -144,7 +156,7 @@ function connectWs() {
 
 function onJson(msg) {
   if (msg.type === "ready") {
-    log(`ready echo=${msg.echo}`);
+    log(`ready echo=${msg.echo} llm=${msg.llm} model=${msg.model || ""}`);
     return;
   }
   if (msg.type === "error") {
@@ -153,6 +165,8 @@ function onJson(msg) {
     return;
   }
   if (msg.type === "speech_start") {
+    player?.stop();
+    awaitingFirstAudio = false;
     setState("speech");
     log("speech_start");
     return;
@@ -166,28 +180,45 @@ function onJson(msg) {
   if (msg.type === "transcript") {
     const ms = tSpeechEnd ? Math.round(performance.now() - tSpeechEnd) : msg.stt_ms;
     latSttEl.textContent = `${ms} ms`;
-    transcriptEl.textContent = msg.text || "(vacío)";
+    transcriptEl.textContent = msg.text || "(empty)";
     log(`transcript stt_ms=${msg.stt_ms} ${msg.text}`);
-    if (echoBox.checked && msg.text?.trim()) {
-      tSpeak = performance.now();
-      awaitingFirstAudio = true;
+    if (!msg.text?.trim()) {
+      if (capturing) setState("listening");
+      else setState("idle");
+      return;
+    }
+    tTranscript = performance.now();
+    awaitingFirstAudio = true;
+    assistantBuf = "";
+    assistantEl.textContent = "—";
+    if (echoBox.checked) {
+      tSpeak = tTranscript;
       setState("speaking");
-    } else if (capturing) {
-      setState("listening");
     } else {
-      setState("idle");
+      tSpeak = 0;
+      setState("thinking");
     }
     return;
   }
+  if (msg.type === "assistant") {
+    assistantBuf = assistantBuf ? `${assistantBuf} ${msg.text}` : msg.text;
+    assistantEl.textContent = assistantBuf;
+    log(`assistant ${msg.text}`);
+    setState("speaking");
+    return;
+  }
   if (msg.type === "audio_start") {
-    player?.stop();
     setState("speaking");
     log(`audio_start id=${msg.id} ${msg.sample_rate} Hz`);
     return;
   }
   if (msg.type === "audio_end") {
     log(`audio_end id=${msg.id} synth_ms=${msg.synth_ms}`);
+    return;
+  }
+  if (msg.type === "turn_end") {
     awaitingFirstAudio = false;
+    if (uiState === "error") return;
     if (capturing) setState("listening");
     else setState("idle");
   }
@@ -236,7 +267,7 @@ function stopMic() {
   mediaStream = null;
   talkBtn.disabled = false;
   stopBtn.disabled = true;
-  if (uiState !== "speaking") setState("idle");
+  if (uiState !== "speaking" && uiState !== "thinking") setState("idle");
   log("mic stopped");
 }
 
@@ -265,7 +296,9 @@ synthBtn.addEventListener("click", async () => {
   const text = synthText.value.trim();
   if (!text) return;
   tSpeak = performance.now();
+  tTranscript = 0;
   awaitingFirstAudio = true;
+  player?.stop();
   setState("speaking");
   const send = () => ws.send(JSON.stringify({ type: "speak", id: crypto.randomUUID(), text }));
   if (ws.readyState === WebSocket.OPEN) send();
