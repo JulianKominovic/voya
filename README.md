@@ -65,11 +65,11 @@ First run downloads Whisper `large-v3-turbo` (Hugging Face cache) and Kokoro + S
 
 Better Spanish than Kokoro `ef_dora`. Same WS; Node does not change. Do **not** `uv sync --extra qwen` on the Mac.
 
-On the 5080:
+On the 5080 (`--extra qwen` is required; plain `uv sync` uninstalls torch/qwen-tts and can delete shared cuDNN files):
 
 ```bash
 cd python
-uv sync --extra qwen
+uv sync --extra qwen --reinstall-package nvidia-cudnn-cu13
 TTS_ENGINE=qwen TTS_VOICE=Serena uv run uvicorn speech_server.main:app --host 0.0.0.0 --port 8765
 ```
 

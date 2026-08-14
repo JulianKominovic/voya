@@ -25,6 +25,14 @@ Defaults `WHISPER_MODEL=large-v3-turbo`, `WHISPER_DEVICE=cuda`, `WHISPER_COMPUTE
 
 No usar `create_stream`. `asyncio.to_thread(kokoro.create)` detrás de un `asyncio.Lock` en `TTS`, con `asyncio.shield` para que un `task.cancel()` en disconnect no libere el lock antes de que termine `create`.
 
+### Extra Qwen borró libcudnn (Silero/ORT)
+
+#### `uv sync --extra qwen` metió el `nvidia-cudnn-cu12` de torch en el mismo `site-packages/nvidia/cudnn/lib` que `nvidia-cudnn-cu13`. Un `uv sync` sin extra desinstaló cu12 y se llevó `libcudnn`. El VAD murió: ORT `dlopen("libcudnn.so")` → no existe. Qwen además necesita `--extra qwen`; un `uv sync` solo saca `qwen-tts`.
+
+#### Corrección
+
+Override `nvidia-cudnn-cu12; sys_platform == 'never'` en `pyproject.toml` (torch usa el `libcudnn.so.9` de cu13). Si el sync ya rompió la 5080: `uv sync --extra qwen --reinstall-package nvidia-cudnn-cu13`. `gpu.py` linkea `libcudnn.so` en `onnxruntime/capi` (`$ORIGIN`) para que ORT lo encuentre.
+
 ### TTS speak encolado vs seq-cancel
 
 #### Node manda un `speak` por oración del LLM y espera ese número de `audio_end` antes de reenviar el mic (`pendingSpeak`). Python incrementaba `seq` en cada `speak`, lo que cancelaba el utterance anterior sin `audio_end`. Tras una respuesta de 2–4 oraciones, `pendingSpeak` quedaba > 0, el mic mudo, y el turno siguiente no arrancaba.

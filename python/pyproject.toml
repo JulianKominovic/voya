@@ -39,10 +39,13 @@ packages = ["speech_server"]
 package = true
 # kokoro-onnx / qwen-tts pull CPU onnxruntime; the 5080 must use the GPU package.
 # qwen-tts also pulls gradio/sox for its demo CLI — unused here.
+# torch pulls nvidia-cudnn-cu12 into the same nvidia/cudnn/lib as cu13;
+# uninstalling it deletes libcudnn and Silero/ORT die.
 override-dependencies = [
     "onnxruntime; sys_platform == 'never'",
     "gradio; sys_platform == 'never'",
     "sox; sys_platform == 'never'",
+    "nvidia-cudnn-cu12; sys_platform == 'never'",
 ]
 
 # CUDA wheels with sm_120 (Blackwell / 5080). Not the CPU package from PyPI.

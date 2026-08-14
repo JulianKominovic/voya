@@ -25,6 +25,14 @@ Defaults `WHISPER_MODEL=large-v3-turbo`, `WHISPER_DEVICE=cuda`, `WHISPER_COMPUTE
 
 Keep CUDA 13 for ORT. Also install `nvidia-cublas-cu12` + `nvidia-cuda-runtime-cu12` and preload `.so.12` before `WhisperModel`. Do not install `nvidia-cudnn-cu12` (same `libcudnn.so.9` path as cu13). Do not symlink `.so.12` → `.so.13`. Do not put both toolkits on `LD_LIBRARY_PATH`.
 
+### Qwen extra deleted libcudnn (Silero/ORT)
+
+#### `uv sync --extra qwen` pulled torch's `nvidia-cudnn-cu12` into the same `site-packages/nvidia/cudnn/lib` as `nvidia-cudnn-cu13`. A later `uv sync` without the extra uninstalled cu12 and deleted `libcudnn`. VAD then died: ORT `dlopen("libcudnn.so")` → file not found. Qwen also needs `--extra qwen`; plain `uv sync` removes `qwen-tts`.
+
+#### Fix
+
+Override `nvidia-cudnn-cu12; sys_platform == 'never'` in `pyproject.toml` (torch uses cu13's `libcudnn.so.9`). After a broken sync on the 5080: `uv sync --extra qwen --reinstall-package nvidia-cudnn-cu13`. `gpu.py` links `libcudnn.so` into `onnxruntime/capi` (`$ORIGIN`) so ORT finds it.
+
 ### TTS speak queued vs seq-cancel
 
 #### Node sends one `speak` per LLM sentence and waits for that many `audio_end` before unmuting the mic (`pendingSpeak`). Python bumped `seq` on every `speak`, which cancelled the previous utterance without `audio_end`. After a 2–4 sentence reply, `pendingSpeak` stuck > 0, the mic stayed muted, and the next turn never started.
