@@ -38,13 +38,12 @@ packages = ["speech_server"]
 [tool.uv]
 package = true
 # kokoro-onnx / qwen-tts pull CPU onnxruntime; the 5080 must use the GPU package.
-# qwen-tts also pulls gradio/sox for its demo CLI — unused here.
+# qwen-tts pulls gradio for its demo CLI — unused. sox is imported at load; keep it.
 # torch pulls nvidia-cudnn-cu12 into the same nvidia/cudnn/lib as cu13;
 # uninstalling it deletes libcudnn and Silero/ORT die.
 override-dependencies = [
     "onnxruntime; sys_platform == 'never'",
     "gradio; sys_platform == 'never'",
-    "sox; sys_platform == 'never'",
     "nvidia-cudnn-cu12; sys_platform == 'never'",
 ]
 

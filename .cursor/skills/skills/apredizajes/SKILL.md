@@ -31,7 +31,7 @@ Keep CUDA 13 for ORT. Also install `nvidia-cublas-cu12` + `nvidia-cuda-runtime-c
 
 #### Fix
 
-Override `nvidia-cudnn-cu12; sys_platform == 'never'` in `pyproject.toml` (torch uses cu13's `libcudnn.so.9`). After a broken sync on the 5080: `uv sync --extra qwen --reinstall-package nvidia-cudnn-cu13`. `gpu.py` links `libcudnn.so` into `onnxruntime/capi` (`$ORIGIN`) so ORT finds it.
+Override `nvidia-cudnn-cu12; sys_platform == 'never'` in `pyproject.toml` (torch uses cu13's `libcudnn.so.9`). After a broken sync on the 5080: `uv sync --extra qwen --reinstall-package nvidia-cudnn-cu13`. `gpu.py` links `libcudnn.so` into `onnxruntime/capi` (`$ORIGIN`) so ORT finds it. Do not override `sox`: qwen-tts imports it at load (`speech_vq.py`). Gradio can stay overridden.
 
 ### TTS speak queued vs seq-cancel
 

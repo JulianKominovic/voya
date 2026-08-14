@@ -31,7 +31,7 @@ No usar `create_stream`. `asyncio.to_thread(kokoro.create)` detrás de un `async
 
 #### Corrección
 
-Override `nvidia-cudnn-cu12; sys_platform == 'never'` en `pyproject.toml` (torch usa el `libcudnn.so.9` de cu13). Si el sync ya rompió la 5080: `uv sync --extra qwen --reinstall-package nvidia-cudnn-cu13`. `gpu.py` linkea `libcudnn.so` en `onnxruntime/capi` (`$ORIGIN`) para que ORT lo encuentre.
+Override `nvidia-cudnn-cu12; sys_platform == 'never'` en `pyproject.toml` (torch usa el `libcudnn.so.9` de cu13). Si el sync ya rompió la 5080: `uv sync --extra qwen --reinstall-package nvidia-cudnn-cu13`. `gpu.py` linkea `libcudnn.so` en `onnxruntime/capi` (`$ORIGIN`) para que ORT lo encuentre. No overridear `sox`: qwen-tts lo importa al cargar (`speech_vq.py`). Gradio sí puede quedar overrideado.
 
 ### TTS speak encolado vs seq-cancel
 

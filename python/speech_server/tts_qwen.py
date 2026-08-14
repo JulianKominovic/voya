@@ -37,11 +37,14 @@ class QwenTTS:
     def __init__(self) -> None:
         try:
             import torch
-            from qwen_tts import Qwen3TTSModel
         except ImportError as exc:
             raise RuntimeError(
                 "TTS_ENGINE=qwen needs the qwen extra. On the 5080: uv sync --extra qwen"
             ) from exc
+        try:
+            from qwen_tts import Qwen3TTSModel
+        except ImportError as exc:
+            raise RuntimeError(f"qwen-tts import failed: {exc}") from exc
         if not torch.cuda.is_available():
             raise RuntimeError(
                 "Qwen TTS requires CUDA (RTX 5080). torch.cuda.is_available() is False."
