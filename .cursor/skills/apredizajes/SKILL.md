@@ -24,3 +24,11 @@ Defaults `WHISPER_MODEL=large-v3-turbo`, `WHISPER_DEVICE=cuda`, `WHISPER_COMPUTE
 #### Corrección
 
 No usar `create_stream`. `asyncio.to_thread(kokoro.create)` detrás de un `asyncio.Lock` en `TTS`, con `asyncio.shield` para que un `task.cancel()` en disconnect no libere el lock antes de que termine `create`.
+
+### TTS speak encolado vs seq-cancel
+
+#### Node manda un `speak` por oración del LLM y espera ese número de `audio_end` antes de reenviar el mic (`pendingSpeak`). Python incrementaba `seq` en cada `speak`, lo que cancelaba el utterance anterior sin `audio_end`. Tras una respuesta de 2–4 oraciones, `pendingSpeak` quedaba > 0, el mic mudo, y el turno siguiente no arrancaba.
+
+#### Corrección
+
+Python: `seq += 1` solo en `cancel` (y disconnect). Los `speak` nuevos comparten el `seq` actual y se encolan en el lock. Node: decrementar `pendingSpeak` solo si el `id` está en `ttsWaits`, para que un `audio_end`/`error` tardío después de un abort no desfase el turno siguiente.

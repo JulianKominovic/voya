@@ -24,3 +24,11 @@ Defaults `WHISPER_MODEL=large-v3-turbo`, `WHISPER_DEVICE=cuda`, `WHISPER_COMPUTE
 #### Fix
 
 Keep CUDA 13 for ORT. Also install `nvidia-cublas-cu12` + `nvidia-cuda-runtime-cu12` and preload `.so.12` before `WhisperModel`. Do not install `nvidia-cudnn-cu12` (same `libcudnn.so.9` path as cu13). Do not symlink `.so.12` → `.so.13`. Do not put both toolkits on `LD_LIBRARY_PATH`.
+
+### TTS speak queued vs seq-cancel
+
+#### Node sends one `speak` per LLM sentence and waits for that many `audio_end` before unmuting the mic (`pendingSpeak`). Python bumped `seq` on every `speak`, which cancelled the previous utterance without `audio_end`. After a 2–4 sentence reply, `pendingSpeak` stuck > 0, the mic stayed muted, and the next turn never started.
+
+#### Fix
+
+Python: increment `seq` only on `cancel` (and disconnect). New `speak` tasks share the current `seq` and queue on the existing lock. Node: decrement `pendingSpeak` only when the `id` is in `ttsWaits`, so a late `audio_end`/`error` after abort cannot desync the next turn.

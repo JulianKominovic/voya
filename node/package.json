@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node src/server.mjs"
+    "start": "tsc -p tsconfig.app.json && tsx src/server.ts"
   },
   "engines": {
     "node": ">=18"
@@ -11,5 +11,11 @@
   "dependencies": {
     "@openrouter/sdk": "^1.2.34",
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
   }
 }

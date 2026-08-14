@@ -85,5 +85,5 @@ A `WHISPER_DEVICE` other than `cuda` aborts the process.
 ## Layout
 
 - `python/speech_server/` — one FastAPI, `GET /health`, `WS /ws/speech-in`, `WS /ws/tts`
-- `node/src/server.mjs` — static files + one client WS + proxy to Python
-- `node/public/` — minimal HTML (ScriptProcessor, not AudioWorklet)
+- `node/src/server.ts` — static files + one client WS + proxy to Python
+- `node/src/app.ts` — Chrome UI (ScriptProcessor, not AudioWorklet); compiled to `public/app.js`

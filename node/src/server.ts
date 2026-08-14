@@ -8,8 +8,8 @@ import { OpenRouter } from "@openrouter/sdk";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function loadEnv(file) {
-  let raw;
+function loadEnv(file: string) {
+  let raw: string;
   try {
     raw = fs.readFileSync(file, "utf8");
   } catch {
@@ -49,11 +49,44 @@ const openrouter = OPENROUTER_API_KEY
   ? new OpenRouter({ apiKey: OPENROUTER_API_KEY })
   : null;
 
-function takeSentences(buf, flushAll) {
-  const sentences = [];
+type ChatMsg = { role: "system" | "user" | "assistant"; content: string };
+
+type Turn = {
+  id: string;
+  tSpeechEnd: number;
+  tTranscript: number;
+  tLlm: number;
+  gotFirstToken: boolean;
+  gotFirstSentence: boolean;
+};
+
+type TtsWait = { turnId: string; tSpeak: number; gotPcm: boolean };
+
+function now() {
+  return performance.now();
+}
+
+function ms(t0: number) {
+  return Math.round(now() - t0);
+}
+
+function newTurnId() {
+  return randomUUID().slice(0, 4);
+}
+
+function logTurn(id: string, line: string) {
+  console.log(`[${id}] ${line}`);
+}
+
+function errMsg(err: unknown) {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function takeSentences(buf: string, flushAll: boolean) {
+  const sentences: string[] = [];
   const re = /[.!?](?:[ \t\n]+|$)|[\n]+/g;
   let last = 0;
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = re.exec(buf))) {
     const piece = buf.slice(last, m.index + m[0].length).trim();
     if (piece) sentences.push(piece);
@@ -80,7 +113,7 @@ function takeSentences(buf, flushAll) {
   if (c.sentences.join("|") !== "no period") throw new Error("takeSentences flush");
 }
 
-const MIME = {
+const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -89,7 +122,7 @@ const MIME = {
   ".ico": "image/x-icon",
 };
 
-function sendFile(res, urlPath) {
+function sendFile(res: http.ServerResponse, urlPath: string) {
   const rel = urlPath === "/" ? "index.html" : urlPath.replace(/^\/+/, "");
   const filePath = path.resolve(path.join(PUBLIC, rel));
   if (filePath !== PUBLIC && !filePath.startsWith(PUBLIC + path.sep)) {
@@ -128,17 +161,17 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server, path: "/ws" });
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+function sleep(msWait: number) {
+  return new Promise((r) => setTimeout(r, msWait));
 }
 
-async function openSocket(url, retries = 40) {
-  let last;
+async function openSocket(url: string, retries = 40): Promise<WebSocket> {
+  let last: unknown;
   for (let i = 0; i < retries; i++) {
     try {
-      const ws = await new Promise((resolve, reject) => {
+      const ws = await new Promise<WebSocket>((resolve, reject) => {
         const sock = new WebSocket(url);
-        const onErr = (err) => {
+        const onErr = (err: Error) => {
           sock.close();
           reject(err);
         };
@@ -154,27 +187,42 @@ async function openSocket(url, retries = 40) {
       await sleep(500);
     }
   }
-  throw last || new Error(`cannot connect ${url}`);
+  throw last instanceof Error ? last : new Error(`cannot connect ${url}`);
 }
 
-function sendJson(ws, obj) {
+function sendJson(ws: WebSocket | undefined, obj: unknown) {
   if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
 }
 
-function sendRaw(ws, data, binary) {
+function sendRaw(ws: WebSocket | undefined, data: WebSocket.RawData, binary: boolean) {
   if (ws?.readyState !== WebSocket.OPEN) return;
   if (binary) ws.send(data, { binary: true });
   else ws.send(typeof data === "string" ? data : data.toString());
 }
 
-function deltaText(chunk) {
-  const c = chunk?.choices?.[0]?.delta?.content;
-  if (typeof c === "string") return c;
+function deltaText(chunk: unknown): string {
+  if (!chunk || typeof chunk !== "object") return "";
+  const choices = (chunk as { choices?: Array<{ delta?: { content?: unknown } }> }).choices;
+  const c = choices?.[0]?.delta?.content;
+  return typeof c === "string" ? c : "";
+}
+
+function chunkProvider(chunk: unknown): string {
+  if (!chunk || typeof chunk !== "object") return "";
+  const o = chunk as Record<string, unknown>;
+  if (typeof o.provider === "string") return o.provider;
+  const meta = o.openrouterMetadata ?? o.openrouter_metadata;
+  if (meta && typeof meta === "object") {
+    const attempts = (meta as { attempts?: Array<{ provider?: unknown }> }).attempts;
+    const p = attempts?.[0]?.provider;
+    if (typeof p === "string") return p;
+  }
   return "";
 }
 
-function aborted(err) {
-  const name = err?.name || "";
+function aborted(err: unknown) {
+  const name =
+    err && typeof err === "object" && "name" in err ? String((err as { name: unknown }).name) : "";
   return name === "AbortError" || name === "RequestAbortedError";
 }
 
@@ -182,10 +230,13 @@ wss.on("connection", async (client) => {
   let echo = false;
   let llmBusy = false;
   let pendingSpeak = 0;
-  let llmAbort = null;
-  let speech;
-  let tts;
-  const messages = [{ role: "system", content: SYSTEM_PROMPT }];
+  let llmAbort: AbortController | null = null;
+  let speech: WebSocket | undefined;
+  let tts: WebSocket | undefined;
+  const messages: ChatMsg[] = [{ role: "system", content: SYSTEM_PROMPT }];
+  let turn: Turn | null = null;
+  const ttsWaits = new Map<string, TtsWait>();
+  let ttsActiveId = "";
 
   const closeUp = () => {
     llmAbort?.abort();
@@ -208,61 +259,89 @@ wss.on("connection", async (client) => {
   }
 
   function abortTurn() {
+    const hadWork = llmBusy || pendingSpeak > 0 || llmAbort;
+    if (hadWork && turn) logTurn(turn.id, "abort");
     llmAbort?.abort();
     llmAbort = null;
     llmBusy = false;
     pendingSpeak = 0;
+    ttsWaits.clear();
+    ttsActiveId = "";
     sendJson(tts, { type: "cancel", id: "" });
   }
 
-  function speakTts(text) {
+  function speakTts(text: string) {
     const t = String(text || "").trim();
     if (!t) return;
+    const id = randomUUID();
     pendingSpeak++;
+    const turnId = turn?.id ?? newTurnId();
+    ttsWaits.set(id, { turnId, tSpeak: now(), gotPcm: false });
+    logTurn(turnId, `tts speak id=${id} chars=${t.length}`);
     sendJson(tts, {
       type: "speak",
-      id: randomUUID(),
+      id,
       text: t,
       voice: TTS_VOICE,
       lang: TTS_LANG,
     });
   }
 
-  function speakAssistant(text) {
+  function speakAssistant(text: string) {
     const t = String(text || "").trim();
     if (!t) return;
+    if (turn && !turn.gotFirstSentence) {
+      turn.gotFirstSentence = true;
+      logTurn(turn.id, `llm first_sentence_ms=${ms(turn.tLlm)} chars=${t.length}`);
+    }
     sendJson(client, { type: "assistant", text: t });
     speakTts(t);
   }
 
-  async function runLlm(userText) {
+  async function runLlm(userText: string) {
     abortTurn();
     if (!openrouter) {
       sendJson(client, { type: "error", message: "OPENROUTER_API_KEY missing in node/.env" });
       return;
     }
+    if (!turn) turn = { id: newTurnId(), tSpeechEnd: 0, tTranscript: now(), tLlm: 0, gotFirstToken: false, gotFirstSentence: false };
     const ac = new AbortController();
     llmAbort = ac;
     llmBusy = true;
-    const userMsg = { role: "user", content: userText };
+    const userMsg: ChatMsg = { role: "user", content: userText };
     messages.push(userMsg);
     let buf = "";
     let full = "";
+    turn.tLlm = now();
+    turn.gotFirstToken = false;
+    turn.gotFirstSentence = false;
+    logTurn(turn.id, "llm start sort=latency");
     try {
-      const stream = await openrouter.chat.send(
+      const stream = (await openrouter.chat.send(
         {
+          xOpenRouterMetadata: "enabled",
           chatRequest: {
             model: OPENROUTER_MODEL,
             messages,
             stream: true,
+            provider: { sort: "latency" },
           },
         },
         { signal: ac.signal },
-      );
+      )) as AsyncIterable<unknown>;
+      let provider = "";
       for await (const chunk of stream) {
         if (ac.signal.aborted) return;
+        if (!provider) provider = chunkProvider(chunk);
         const piece = deltaText(chunk);
         if (!piece) continue;
+        if (turn && !turn.gotFirstToken) {
+          turn.gotFirstToken = true;
+          logTurn(
+            turn.id,
+            `llm first_token_ms=${ms(turn.tLlm)}${provider ? ` provider=${provider}` : ""}`,
+          );
+        }
         buf += piece;
         full += piece;
         const { sentences, rest } = takeSentences(buf, false);
@@ -273,8 +352,9 @@ wss.on("connection", async (client) => {
       for (const s of sentences) speakAssistant(s);
     } catch (err) {
       if (aborted(err) || ac.signal.aborted) return;
-      sendJson(client, { type: "error", message: String(err.message || err) });
+      sendJson(client, { type: "error", message: errMsg(err) });
     } finally {
+      if (turn && turn.tLlm) logTurn(turn.id, `llm done total_ms=${ms(turn.tLlm)} chars=${full.length}`);
       if (full.trim()) {
         const idx = messages.indexOf(userMsg);
         if (idx >= 0) messages.splice(idx + 1, 0, { role: "assistant", content: full.trim() });
@@ -295,7 +375,7 @@ wss.on("connection", async (client) => {
   } catch (err) {
     sendJson(client, {
       type: "error",
-      message: `python upstream: ${err.message}. Is uvicorn on 8765?`,
+      message: `python upstream: ${errMsg(err)}. Is uvicorn on 8765?`,
     });
     client.close();
     return;
@@ -306,18 +386,49 @@ wss.on("connection", async (client) => {
       sendRaw(client, data, true);
       return;
     }
-    let msg;
+    let msg: { type?: string; text?: string; stt_ms?: number; duration_ms?: number };
     try {
       msg = JSON.parse(data.toString());
     } catch {
       sendRaw(client, data, false);
       return;
     }
-    if (msg.type === "speech_start") abortTurn();
+    if (msg.type === "speech_start") {
+      abortTurn();
+      logTurn(turn?.id ?? "----", "speech_start");
+    }
+    if (msg.type === "speech_end") {
+      turn = {
+        id: newTurnId(),
+        tSpeechEnd: now(),
+        tTranscript: 0,
+        tLlm: 0,
+        gotFirstToken: false,
+        gotFirstSentence: false,
+      };
+      logTurn(turn.id, `speech_end duration_ms=${msg.duration_ms ?? ""}`);
+    }
     sendRaw(client, data, false);
     if (msg.type !== "transcript") return;
     const text = String(msg.text || "").trim();
-    if (!text) return;
+    if (!turn) {
+      turn = {
+        id: newTurnId(),
+        tSpeechEnd: 0,
+        tTranscript: now(),
+        tLlm: 0,
+        gotFirstToken: false,
+        gotFirstSentence: false,
+      };
+    } else {
+      turn.tTranscript = now();
+    }
+    const hop = turn.tSpeechEnd ? ms(turn.tSpeechEnd) : 0;
+    if (!text) {
+      logTurn(turn.id, `transcript empty stt_ms=${msg.stt_ms ?? ""} hop_ms=${hop}`);
+      return;
+    }
+    logTurn(turn.id, `transcript stt_ms=${msg.stt_ms ?? ""} hop_ms=${hop} text=${text}`);
     if (echo) {
       speakTts(text);
       return;
@@ -327,15 +438,32 @@ wss.on("connection", async (client) => {
 
   tts.on("message", (data, isBinary) => {
     sendRaw(client, data, isBinary);
-    if (isBinary) return;
-    let msg;
+    if (isBinary) {
+      const wait = ttsWaits.get(ttsActiveId);
+      if (wait && !wait.gotPcm) {
+        wait.gotPcm = true;
+        logTurn(wait.turnId, `tts first_pcm_ms=${ms(wait.tSpeak)} id=${ttsActiveId}`);
+      }
+      return;
+    }
+    let msg: { type?: string; id?: string; synth_ms?: number };
     try {
       msg = JSON.parse(data.toString());
     } catch {
       return;
     }
+    if (msg.type === "audio_start") {
+      ttsActiveId = String(msg.id || "");
+      const wait = ttsWaits.get(ttsActiveId);
+      if (wait) logTurn(wait.turnId, `tts audio_start_ms=${ms(wait.tSpeak)} id=${ttsActiveId}`);
+    }
     if (msg.type === "audio_end" || msg.type === "error") {
-      if (pendingSpeak === 0 && !llmBusy) return;
+      const id = String(msg.id || ttsActiveId);
+      const wait = ttsWaits.get(id);
+      if (!wait) return;
+      const extra = msg.type === "audio_end" ? ` synth_ms=${msg.synth_ms ?? ""}` : "";
+      logTurn(wait.turnId, `tts ${msg.type} total_ms=${ms(wait.tSpeak)}${extra} id=${id}`);
+      ttsWaits.delete(id);
       if (pendingSpeak > 0) pendingSpeak--;
       maybeTurnEnd();
     }
@@ -351,7 +479,7 @@ wss.on("connection", async (client) => {
       if (pendingSpeak === 0) sendRaw(speech, data, true);
       return;
     }
-    let msg;
+    let msg: { type?: string; enabled?: boolean; text?: string };
     try {
       msg = JSON.parse(data.toString());
     } catch {
@@ -364,6 +492,15 @@ wss.on("connection", async (client) => {
     if (msg.type === "speak") {
       const text = String(msg.text || "").trim();
       if (!text) return;
+      turn = {
+        id: newTurnId(),
+        tSpeechEnd: 0,
+        tTranscript: now(),
+        tLlm: 0,
+        gotFirstToken: false,
+        gotFirstSentence: false,
+      };
+      logTurn(turn.id, `client speak chars=${text.length}`);
       speakTts(text);
       return;
     }

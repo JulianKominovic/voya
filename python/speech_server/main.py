@@ -315,7 +315,6 @@ async def tts_ws(ws: WebSocket) -> None:
                 continue
             kind = cmd.get("type")
             if kind == "speak":
-                seq += 1
                 task = asyncio.create_task(speak(cmd, seq))
                 tasks.add(task)
                 task.add_done_callback(tasks.discard)

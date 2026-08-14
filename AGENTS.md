@@ -42,13 +42,13 @@ cd node && npm i && npm start
 ## Layout
 
 - `python/speech_server/` — FastAPI, `/health`, `/ws/speech-in`, `/ws/tts`
-- `node/src/server.mjs` — static files + one client WS + proxy
-- `node/public/` — HTML/JS vanilla (`ScriptProcessor`)
+- `node/src/server.ts` — static files + one client WS + proxy
+- `node/src/app.ts` — Chrome UI (`ScriptProcessor`); `tsc` emits `public/app.js`
 
 ## Style
 
 - Python 3.11+, `from __future__ import annotations`, config via env.
-- Node ESM, stdlib + `ws`. Frontend without bundler.
+- Node ESM + TypeScript (`tsx`). Frontend without bundler (`tsc` → `public/app.js`).
 - Minimal: no new deps if stdlib suffices; the shortest diff wins.
 - Ponytail (`.cursor/skills/skills/ponytail/`) if they ask for lazy / yagni / ponytail.
 - Agent errors: update `.cursor/skills/skills/apredizajes/SKILL.md`.
