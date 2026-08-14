@@ -73,14 +73,16 @@ uv sync --extra qwen --reinstall-package nvidia-cudnn-cu13
 TTS_ENGINE=qwen TTS_VOICE=Serena uv run uvicorn speech_server.main:app --host 0.0.0.0 --port 8765
 ```
 
-On the Mac, pass the same voice through Node:
+On the Mac, **must** pass the same voice through Node (otherwise Node sends Kokoro's `ef_dora` and Python silently uses Serena):
 
 ```bash
 TTS_VOICE=Serena SPEECH_URL=ws://<ip-5080>:8765/ws/speech-in \
 TTS_URL=ws://<ip-5080>:8765/ws/tts npm start
 ```
 
-If Node still sends `ef_dora`, Python falls back to Serena. `/health` should show `tts_engine=qwen` and `tts_providers` like `["cuda:0"]`. First start downloads `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` from Hugging Face. `TTS_MODEL` can point at `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` for quality.
+`/health` should show `tts_engine=qwen` and `tts_providers` like `["cuda:0"]`. First start downloads `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` from Hugging Face.
+
+0.6B CustomVoice has no `instruct` (cannot force a spoken style by text). Generation is greedy (`do_sample=False`) so the tone stays stable. PCM streams in ~0.67 s chunks via `faster-qwen3-tts`; `tts_first_chunk_ms` should be much smaller than `synth_ms`. `TTS_MODEL` can point at `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` for quality + instruct, at the cost of speed.
 
 ## Ports and env
 

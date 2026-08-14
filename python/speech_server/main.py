@@ -287,11 +287,11 @@ async def tts_ws(ws: WebSocket) -> None:
         if not text:
             await _send_json(ws, {"type": "error", "message": "empty speak text"})
             return
-        t0 = time.perf_counter()
         first = True
         async with lock:
             if seq != my_seq:
                 return
+            t0 = time.perf_counter()
             await _send_json(
                 ws,
                 {

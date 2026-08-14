@@ -24,6 +24,7 @@ dependencies = [
 [project.optional-dependencies]
 qwen = [
     "qwen-tts>=0.1.1",
+    "faster-qwen3-tts>=0.3.2",
     "torch>=2.7",
     "torchaudio",
 ]
