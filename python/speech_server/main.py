@@ -18,7 +18,9 @@ from speech_server.config import (
     MIN_SILENCE_MS,
     MODELS_DIR,
     SILERO_ONNX,
+    TTS_ENGINE,
     TTS_LANG,
+    TTS_MODEL,
     TTS_VOICE,
     WHISPER_COMPUTE_TYPE,
     WHISPER_DEVICE,
@@ -53,13 +55,40 @@ async def ensure_stt() -> STT:
 
 
 def _require_models() -> None:
-    missing = [p for p in (SILERO_ONNX, KOKORO_ONNX, KOKORO_VOICES) if not p.exists()]
+    needed = [SILERO_ONNX]
+    if TTS_ENGINE == "kokoro":
+        needed += [KOKORO_ONNX, KOKORO_VOICES]
+    missing = [p for p in needed if not p.exists()]
     if missing:
         names = ", ".join(p.name for p in missing)
         raise FileNotFoundError(
             f"missing models in {MODELS_DIR}: {names}. "
             "Run: uv run python -m speech_server.download_models"
         )
+
+
+def _load_tts() -> Any:
+    if TTS_ENGINE == "qwen":
+        from speech_server.tts_qwen import QwenTTS
+
+        tts = QwenTTS()
+        log.info("tts engine=qwen device=%s model=%s", tts.device, TTS_MODEL)
+        return tts
+    if TTS_ENGINE != "kokoro":
+        raise RuntimeError(f"TTS_ENGINE={TTS_ENGINE!r}; use kokoro or qwen")
+    tts = TTS()
+    log.info("tts providers=%s", tts.kokoro.sess.get_providers())
+    return tts
+
+
+def _tts_device(tts: Any) -> list[str]:
+    if tts is None:
+        return []
+    kokoro = getattr(tts, "kokoro", None)
+    if kokoro is not None:
+        return list(kokoro.sess.get_providers())
+    device = getattr(tts, "device", None)
+    return [str(device)] if device else []
 
 
 @asynccontextmanager
@@ -74,8 +103,7 @@ async def lifespan(_app: FastAPI):
         log.info("loading VAD CUDA %s", SILERO_ONNX)
         STATE["vad"] = SileroOnnx()
         log.info("vad providers=%s", STATE["vad"].session.get_providers())
-        STATE["tts"] = TTS()
-        log.info("tts providers=%s", STATE["tts"].kokoro.sess.get_providers())
+        STATE["tts"] = _load_tts()
         STATE["ready"] = True
         STATE["error"] = None
         log.info("VAD+TTS ready (Whisper loads in background)")
@@ -113,7 +141,9 @@ async def health() -> JSONResponse:
             "whisper_compute": WHISPER_COMPUTE_TYPE,
             "cuda_device": CUDA_DEVICE,
             "vad_providers": list(STATE["vad"].session.get_providers()) if STATE["vad"] else [],
-            "tts_providers": list(STATE["tts"].kokoro.sess.get_providers()) if STATE["tts"] else [],
+            "tts_engine": TTS_ENGINE,
+            "tts_model": TTS_MODEL if TTS_ENGINE == "qwen" else None,
+            "tts_providers": _tts_device(STATE["tts"]),
             "tts_voice": TTS_VOICE,
             "tts_lang": TTS_LANG,
             "models_dir": str(MODELS_DIR),
@@ -245,7 +275,7 @@ async def tts_ws(ws: WebSocket) -> None:
         await _send_json(ws, {"type": "error", "message": "models not ready"})
         await ws.close()
         return
-    tts: TTS = STATE["tts"]
+    tts = STATE["tts"]
     seq = 0
     lock = asyncio.Lock()
 

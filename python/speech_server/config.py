@@ -21,6 +21,8 @@ MIN_SPEECH_MS = int(os.environ.get("MIN_SPEECH_MS", "250"))
 MIN_SILENCE_MS = int(os.environ.get("MIN_SILENCE_MS", "700"))
 PREROLL_MS = int(os.environ.get("PREROLL_MS", "300"))
 
+TTS_ENGINE = os.environ.get("TTS_ENGINE", "kokoro").strip().lower()
+TTS_MODEL = os.environ.get("TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice")
 TTS_VOICE = os.environ.get("TTS_VOICE", "ef_dora")
 TTS_LANG = os.environ.get("TTS_LANG", "es")
 

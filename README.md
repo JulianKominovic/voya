@@ -54,12 +54,33 @@ If Node runs on the same machine as Python, `npm start` is enough (defaults to `
 
 Chrome → [http://127.0.0.1:8787](http://127.0.0.1:8787)
 
-1. **Synthesize** a phrase — validates Kokoro CUDA + 24 kHz playback.
+1. **Synthesize** a phrase — validates TTS CUDA + 24 kHz playback.
 2. Headphones → **Speak**.
 
 First run downloads Whisper `large-v3-turbo` (Hugging Face cache) and Kokoro + Silero to `python/models/`.
 
-`GET http://<ip-5080>:8765/health` — `vad_providers` / `tts_providers` must include `CUDAExecutionProvider`. `stt` turns true once Whisper finishes loading.
+`GET http://<ip-5080>:8765/health` — `vad_providers` must include `CUDAExecutionProvider`. With Kokoro, `tts_providers` too. `stt` turns true once Whisper finishes loading.
+
+### Qwen3-TTS (optional, 5080 only)
+
+Better Spanish than Kokoro `ef_dora`. Same WS; Node does not change. Do **not** `uv sync --extra qwen` on the Mac.
+
+On the 5080:
+
+```bash
+cd python
+uv sync --extra qwen
+TTS_ENGINE=qwen TTS_VOICE=Serena uv run uvicorn speech_server.main:app --host 0.0.0.0 --port 8765
+```
+
+On the Mac, pass the same voice through Node:
+
+```bash
+TTS_VOICE=Serena SPEECH_URL=ws://<ip-5080>:8765/ws/speech-in \
+TTS_URL=ws://<ip-5080>:8765/ws/tts npm start
+```
+
+If Node still sends `ef_dora`, Python falls back to Serena. `/health` should show `tts_engine=qwen` and `tts_providers` like `["cuda:0"]`. First start downloads `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` from Hugging Face. `TTS_MODEL` can point at `Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice` for quality.
 
 ## Ports and env
 
@@ -72,7 +93,7 @@ First run downloads Whisper `large-v3-turbo` (Hugging Face cache) and Kokoro + S
 | Whisper | `large-v3-turbo` / `cuda` / `float16` / `es` | `WHISPER_MODEL`, `WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE`, `WHISPER_LANGUAGE` |
 | GPU | device `0` | `CUDA_DEVICE` |
 | VAD | threshold `0.5`, min speech 250 ms, silence 700 ms, pre-roll 300 ms | `VAD_THRESHOLD`, `MIN_SPEECH_MS`, `MIN_SILENCE_MS`, `PREROLL_MS` |
-| TTS | voice `ef_dora`, lang `es` | `TTS_VOICE`, `TTS_LANG` |
+| TTS | engine `kokoro`, voice `ef_dora`, lang `es` | `TTS_ENGINE`, `TTS_VOICE`, `TTS_LANG`, `TTS_MODEL` |
 | models | `python/models` | `MODELS_DIR` |
 
 A `WHISPER_DEVICE` other than `cuda` aborts the process.
