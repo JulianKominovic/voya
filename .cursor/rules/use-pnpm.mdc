@@ -3,3 +3,5 @@ alwaysApply: true
 ---
 
 Use pnpm instead of npm or yarn.
+
+The Node package lives in `node/` (`node/package.json`). Always run pnpm with working directory `node/` (or `pnpm --dir node …` from the repo root). Never run `pnpm exec` from the repo root: there is no package.json there, and pnpm walks up into another project on the machine.

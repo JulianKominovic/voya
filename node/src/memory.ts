@@ -72,7 +72,7 @@ export class Memory {
     if (pendingQuestion) {
       extra.push({
         role: "system",
-        content: `Pregunta pendiente (única activa, FIFO). El usuario puede estar respondiéndola ahora:\n${pendingQuestion}`,
+        content: `Pregunta pendiente (única activa, FIFO; no la leas, usá pending_question):\n${pendingQuestion}`,
       });
     }
     return extra.length ? [...this.messages, ...extra] : this.messages.slice();

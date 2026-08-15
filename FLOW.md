@@ -98,12 +98,15 @@ Sources: the agentic agent's `ask_user` tool; minion questions routed through th
 ### Agentic agent
 
 - Tools: create/list/kill/talk-to minions, `ask_user`, `answer`.
-- **Serialized mailbox:** one LLM call in flight per agent; concurrent inputs (orchestrator's `ask`, minion `ask`s) queue. Never interleave into one conversation.
+- **Serialized mailbox:** one LLM call in flight per agent; concurrent inputs (orchestrator's `ask`, minion `report`s) queue. Never interleave into one conversation.
 - `answer` must be short: enforce in prompt + truncate hard in Node before injecting into orchestrator context.
 
 ### Minions
 
-- One tool only: `ask` (to the agentic agent), used when they need input. Questions must carry full context: what they're working on, why they're asking, where they're stuck.
+- Catalog in `node/src/minions.ts`. Contract: `{ id, name, description, system, tools }`. `system` is that minion's own instructions. Each tool is an OpenRouter function tool plus `exec`.
+- Agentic `create_minion(id, task)` — picks from the catalog; does not pass tools.
+- Host always injects `report` (`status` | `ask` | `done`) and a protocol system. Then `def.system` + `def.tools`. Finish only via `report(done)`. `ask` can be routed to the user through the agentic agent's `ask_user`. `status` is fire-and-forget.
+- Today: `developer` (no own tools yet).
 - Run in background; survive barge-in and conversation turns.
 - Their questions to the user go through the question queue via the agentic agent.
 

@@ -23,6 +23,8 @@ export type VoiceState =
   | "thinking"
   | "speaking";
 
+export type LogChannel = "stt" | "llm_conv" | "llm_agentic" | "minions" | "tts";
+
 export function wantMerge(opts: {
   lastSpeechEnd: number;
   now: number;
@@ -129,6 +131,10 @@ export class Session {
       this.maybeSpeakQuestion();
     };
     this.questions.onResolve = (info) => {
+      this.logTurn(
+        `question_resolved ${info.id} ${info.status}${info.text ? ` text=${info.text}` : ""}`,
+        "llm_agentic",
+      );
       sendJson(this.client, {
         type: "question_resolved",
         id: info.id,
@@ -163,14 +169,15 @@ export class Session {
     if (!on && this.state === "listening") this.setState("idle");
   }
 
-  logTurn(line: string) {
+  logTurn(line: string, channel?: LogChannel) {
     console.log(`[${this.turnId}|g${this.gen}] ${line}`);
     this.memory.log({ type: "turn_log", turn: this.turnId, gen: this.gen, line });
+    if (channel) sendJson(this.client, { type: "log", ts: now(), channel, text: line });
   }
 
   abortVoicePath() {
     const had = this.llmBusy || this.ttsInFlight || this.ttsQueue.length || this.llmAbort;
-    if (had) this.logTurn("abort voice path");
+    if (had) this.logTurn("abort voice path", "tts");
     this.llmAbort?.abort();
     this.llmAbort = null;
     this.llmBusy = false;
@@ -197,8 +204,14 @@ export class Session {
     };
     speech.on("close", dead);
     tts.on("close", dead);
-    speech.on("error", (err) => sendJson(this.client, { type: "error", message: String(err) }));
-    tts.on("error", (err) => sendJson(this.client, { type: "error", message: String(err) }));
+    speech.on("error", (err) => {
+      this.logTurn(`speech ws error ${String(err)}`, "stt");
+      sendJson(this.client, { type: "error", message: String(err) });
+    });
+    tts.on("error", (err) => {
+      this.logTurn(`tts ws error ${String(err)}`, "tts");
+      sendJson(this.client, { type: "error", message: String(err) });
+    });
   }
 
   unbindPython() {
@@ -240,7 +253,7 @@ export class Session {
       state: this.state,
     });
     if (merge) {
-      this.logTurn("speech_start merge");
+      this.logTurn("speech_start merge", "stt");
       this.llmAbort?.abort();
       this.llmAbort = null;
       this.llmBusy = false;
@@ -256,7 +269,7 @@ export class Session {
     this.mergeHold = "";
     this.lastUserText = "";
     this.currentStartDuringTts = startedDuringTts;
-    this.logTurn("speech_start");
+    this.logTurn("speech_start", "stt");
     this.setState("user_speaking");
     sendJson(this.client, { type: "speech_start" });
   }
@@ -269,7 +282,7 @@ export class Session {
       tSpeechEnd: this.lastSpeechEnd,
       startedDuringTts: this.currentStartDuringTts,
     });
-    this.logTurn(`speech_end duration_ms=${durationMs}`);
+    this.logTurn(`speech_end duration_ms=${durationMs}`, "stt");
     this.setState("transcribing");
     sendJson(this.client, { type: "speech_end", duration_ms: durationMs });
   }
@@ -278,26 +291,26 @@ export class Session {
     const pending = this.pendingStt.shift();
     const t = String(text || "").trim();
     if (!pending) {
-      this.logTurn("transcript unmatched drop");
+      this.logTurn("transcript unmatched drop", "stt");
       return;
     }
     const hop = pending.tSpeechEnd ? ms(pending.tSpeechEnd) : 0;
     if (pending.gen !== this.gen) {
-      this.logTurn(`transcript drop gen=${pending.gen} current=${this.gen}`);
+      this.logTurn(`transcript drop gen=${pending.gen} current=${this.gen}`, "stt");
       return;
     }
     if (isEchoTail(pending.durationMs, pending.startedDuringTts)) {
-      this.logTurn(`transcript echo-tail drop duration_ms=${pending.durationMs}`);
+      this.logTurn(`transcript echo-tail drop duration_ms=${pending.durationMs}`, "stt");
       this.goIdleOrListening();
       return;
     }
     sendJson(this.client, { type: "transcript", text: t, stt_ms: sttMs });
     if (!t) {
-      this.logTurn(`transcript empty stt_ms=${sttMs ?? ""} hop_ms=${hop}`);
+      this.logTurn(`transcript empty stt_ms=${sttMs ?? ""} hop_ms=${hop}`, "stt");
       this.goIdleOrListening();
       return;
     }
-    this.logTurn(`transcript stt_ms=${sttMs ?? ""} hop_ms=${hop} text=${t}`);
+    this.logTurn(`transcript stt_ms=${sttMs ?? ""} hop_ms=${hop} text=${t}`, "stt");
     if (this.state === "user_speaking") {
       this.mergeHold = [this.mergeHold, t].filter(Boolean).join(" ");
       return;
@@ -323,6 +336,7 @@ export class Session {
     const t = sanitizeTts(text);
     if (!t) return;
     this.assistantSpoke = true;
+    this.logTurn(`assistant ${t}`, "llm_conv");
     sendJson(this.client, { type: "assistant", text: t });
     this.speak(t, gen);
   }
@@ -336,6 +350,7 @@ export class Session {
   }
 
   speakError(message: string, gen: number) {
+    this.logTurn(`error ${message}`, "llm_conv");
     sendJson(this.client, { type: "error", message });
     this.speakAssistant(message, gen);
   }
@@ -363,7 +378,7 @@ export class Session {
     if (this.state === "user_speaking" || this.state === "transcribing") return;
     this.questions.markSpoken(h.id);
     sendJson(this.client, { type: "question_asked", id: h.id, text: h.text });
-    this.logTurn(`question_asked ${h.id}`);
+    this.logTurn(`question_asked ${h.id} ${h.text}`, "llm_agentic");
     this.speak(h.text, this.gen);
   }
 
@@ -374,7 +389,7 @@ export class Session {
       if (!job) break;
       if (job.gen !== this.gen) continue;
       this.ttsInFlight = job;
-      this.logTurn(`tts speak id=${job.id} chars=${job.text.length}`);
+      this.logTurn(`tts speak id=${job.id} chars=${job.text.length}`, "tts");
       sendJson(this.tts, {
         type: "speak",
         id: job.id,
@@ -403,7 +418,10 @@ export class Session {
     if (msg.type === "speech_start") this.onSpeechStart();
     else if (msg.type === "speech_end") this.onSpeechEnd(Number(msg.duration_ms || 0));
     else if (msg.type === "transcript") this.onTranscript(String(msg.text || ""), msg.stt_ms);
-    else if (msg.type === "error") sendJson(this.client, { type: "error", message: msg.message });
+    else if (msg.type === "error") {
+      this.logTurn(`speech error ${msg.message ?? ""}`, "stt");
+      sendJson(this.client, { type: "error", message: msg.message });
+    }
     else sendRaw(this.client, data, false);
   }
 
@@ -412,7 +430,7 @@ export class Session {
       if (this.dropTtsBinary || !this.ttsInFlight) return;
       if (!this.ttsInFlight.gotPcm) {
         this.ttsInFlight.gotPcm = true;
-        this.logTurn(`tts first_pcm_ms=${ms(this.ttsInFlight.tSpeak)} id=${this.ttsInFlight.id}`);
+        this.logTurn(`tts first_pcm_ms=${ms(this.ttsInFlight.tSpeak)} id=${this.ttsInFlight.id}`, "tts");
       }
       sendRaw(this.client, data, true);
       return;
@@ -429,7 +447,7 @@ export class Session {
       if (job && job.id === id && job.gen === this.gen) {
         this.dropTtsBinary = false;
         this.ttsPlaying = true;
-        this.logTurn(`tts audio_start_ms=${ms(job.tSpeak)} id=${id}`);
+        this.logTurn(`tts audio_start_ms=${ms(job.tSpeak)} id=${id}`, "tts");
         this.setState("speaking");
         sendJson(this.client, msg);
       } else {
@@ -442,7 +460,7 @@ export class Session {
       const job = this.ttsInFlight;
       if (!job || job.id !== id) return;
       const extra = msg.type === "audio_end" ? ` synth_ms=${msg.synth_ms ?? ""}` : "";
-      this.logTurn(`tts ${msg.type} total_ms=${ms(job.tSpeak)}${extra} id=${id}`);
+      this.logTurn(`tts ${msg.type} total_ms=${ms(job.tSpeak)}${extra} id=${id}`, "tts");
       this.ttsInFlight = null;
       this.ttsPlaying = false;
       this.lastTtsEnd = now();

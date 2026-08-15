@@ -98,6 +98,7 @@ wss.on("connection", async (client) => {
       session.bindPython(speech, tts);
       session.emitState();
     } catch (err) {
+      session.logTurn(`python upstream: ${errMsg(err)}. Is uvicorn on 8765?`, "stt");
       sendJson(client, {
         type: "error",
         message: `python upstream: ${errMsg(err)}. Is uvicorn on 8765?`,
@@ -111,6 +112,7 @@ wss.on("connection", async (client) => {
   session.onPythonDead = () => {
     if (session.closed || reconnecting) return;
     reconnecting = true;
+    session.logTurn("python ws closed, reconnecting", "stt");
     sendJson(client, { type: "error", message: "python ws closed, reconnecting" });
     void attachPython().finally(() => {
       reconnecting = false;
@@ -140,7 +142,7 @@ wss.on("connection", async (client) => {
     if (msg.type === "speak") {
       const text = String(msg.text || "").trim();
       if (!text) return;
-      session.logTurn(`client speak chars=${text.length}`);
+      session.logTurn(`client speak chars=${text.length}`, "tts");
       session.speak(text, session.gen);
       return;
     }

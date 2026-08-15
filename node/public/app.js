@@ -12,6 +12,7 @@ const cancelBtn = $("cancel");
 const echoBox = $("echo");
 const stateEl = $("state");
 const logEl = $("log");
+const logBody = $("log-body");
 const transcriptEl = $("transcript");
 const assistantEl = $("assistant");
 const questionEl = $("question");
@@ -26,15 +27,38 @@ let mediaStream;
 let processor;
 let capturing = false;
 let player;
+let aec = !new URLSearchParams(location.search).has("noaec");
+let pcMic;
+let pcTts;
+let ttsDest;
+let renderEl;
 let tSpeechEnd = 0;
 let tSpeak = 0;
 let tTranscript = 0;
 let awaitingFirstAudio = false;
 let uiState = "idle";
 let assistantBuf = "";
-function log(line) {
-    const t = new Date().toISOString().slice(11, 23);
-    logEl.textContent += `${t} ${line}\n`;
+const COLUMNS = ["stt", "llm_conv", "llm_agentic", "minions", "tts"];
+const MAX_ROWS = 300;
+function addRow(channel, text, ts) {
+    const tr = document.createElement("tr");
+    const t = new Date(ts ?? Date.now()).toISOString().slice(11, 23);
+    const tdTime = document.createElement("td");
+    tdTime.className = "time";
+    tdTime.textContent = t;
+    tr.appendChild(tdTime);
+    for (const col of COLUMNS) {
+        const td = document.createElement("td");
+        if (col === channel) {
+            td.className = `evt ${col}`;
+            td.textContent = text;
+            td.title = text;
+        }
+        tr.appendChild(td);
+    }
+    logBody.appendChild(tr);
+    while (logBody.rows.length > MAX_ROWS)
+        logBody.deleteRow(0);
     logEl.scrollTop = logEl.scrollHeight;
 }
 function setState(name) {
@@ -83,10 +107,12 @@ function s16ToFloat(buf) {
 }
 class PcmPlayer {
     ctx;
+    out;
     next = 0;
     sources = [];
-    constructor(ctx) {
+    constructor(ctx, out) {
         this.ctx = ctx;
+        this.out = out ?? ctx.destination;
     }
     push(float32) {
         if (!float32.length)
@@ -95,7 +121,7 @@ class PcmPlayer {
         buf.getChannelData(0).set(float32);
         const src = this.ctx.createBufferSource();
         src.buffer = buf;
-        src.connect(this.ctx.destination);
+        src.connect(this.out);
         const t = this.ctx.currentTime;
         if (this.next < t + 0.1)
             this.next = t + 0.1;
@@ -128,11 +154,11 @@ function connectWs() {
     ws = sock;
     sock.binaryType = "arraybuffer";
     sock.onopen = () => {
-        log("ws open");
+        addRow("stt", "ws open");
         sock.send(JSON.stringify({ type: "echo", enabled: echoBox.checked }));
     };
-    sock.onclose = () => log("ws close");
-    sock.onerror = () => log("ws error");
+    sock.onclose = () => addRow("stt", "ws close");
+    sock.onerror = () => addRow("stt", "ws error");
     sock.onmessage = (ev) => {
         if (typeof ev.data !== "string") {
             if (awaitingFirstAudio) {
@@ -140,12 +166,12 @@ function connectWs() {
                 if (tSpeak) {
                     const elapsed = Math.round(performance.now() - tSpeak);
                     latTtsEl.textContent = `${elapsed} ms`;
-                    log(`tts_first_chunk_ms=${elapsed}`);
+                    addRow("tts", `tts_first_chunk_ms=${elapsed}`);
                 }
                 if (tTranscript) {
                     const elapsed = Math.round(performance.now() - tTranscript);
                     latLlmEl.textContent = `${elapsed} ms`;
-                    log(`turn_first_chunk_ms=${elapsed}`);
+                    addRow("llm_conv", `turn_first_chunk_ms=${elapsed}`);
                 }
             }
             player?.push(s16ToFloat(ev.data));
@@ -162,8 +188,14 @@ function connectWs() {
     };
 }
 function onJson(msg) {
+    if (msg.type === "log") {
+        if (msg.channel === "stt" || msg.channel === "llm_conv" || msg.channel === "llm_agentic" || msg.channel === "minions" || msg.channel === "tts") {
+            addRow(msg.channel, msg.text || "", msg.ts);
+        }
+        return;
+    }
     if (msg.type === "ready") {
-        log(`ready orch=${msg.orchestrator || ""} agentic=${msg.agentic || ""}`);
+        addRow("llm_conv", `ready orch=${msg.orchestrator || ""} agentic=${msg.agentic || ""}`);
         return;
     }
     if (msg.type === "state") {
@@ -174,34 +206,28 @@ function onJson(msg) {
     }
     if (msg.type === "question_asked") {
         questionEl.textContent = msg.text || "—";
-        log(`question_asked ${msg.id} ${msg.text}`);
         return;
     }
     if (msg.type === "question_resolved") {
-        log(`question_resolved ${msg.id} ${msg.status} ${msg.text || ""}`);
         return;
     }
     if (msg.type === "error") {
-        log(`error ${msg.message}`);
         setState("error");
         return;
     }
     if (msg.type === "speech_start") {
         player?.stop();
         awaitingFirstAudio = false;
-        log("speech_start");
         return;
     }
     if (msg.type === "speech_end") {
         tSpeechEnd = performance.now();
-        log(`speech_end duration_ms=${msg.duration_ms}`);
         return;
     }
     if (msg.type === "transcript") {
         const elapsed = tSpeechEnd ? Math.round(performance.now() - tSpeechEnd) : msg.stt_ms;
         latSttEl.textContent = `${elapsed} ms`;
         transcriptEl.textContent = msg.text || "(empty)";
-        log(`transcript stt_ms=${msg.stt_ms} ${msg.text}`);
         if (msg.text?.trim()) {
             tTranscript = performance.now();
             awaitingFirstAudio = true;
@@ -217,20 +243,50 @@ function onJson(msg) {
     if (msg.type === "assistant") {
         assistantBuf = assistantBuf ? `${assistantBuf} ${msg.text}` : msg.text || "";
         assistantEl.textContent = assistantBuf;
-        log(`assistant ${msg.text}`);
-        return;
-    }
-    if (msg.type === "audio_start") {
-        log(`audio_start id=${msg.id} ${msg.sample_rate} Hz`);
-        return;
-    }
-    if (msg.type === "audio_end") {
-        log(`audio_end id=${msg.id} synth_ms=${msg.synth_ms}`);
         return;
     }
     if (msg.type === "turn_end") {
         awaitingFirstAudio = false;
     }
+}
+async function setupLoopbackAec(micStream) {
+    if (!playCtx)
+        throw new Error("no playCtx");
+    const a = new RTCPeerConnection();
+    const b = new RTCPeerConnection();
+    pcMic = a;
+    pcTts = b;
+    a.onicecandidate = (e) => {
+        if (e.candidate)
+            b.addIceCandidate(e.candidate).catch(() => { });
+    };
+    b.onicecandidate = (e) => {
+        if (e.candidate)
+            a.addIceCandidate(e.candidate).catch(() => { });
+    };
+    a.onconnectionstatechange = () => addRow("stt", `aec pcMic ${a.connectionState}`);
+    a.addTrack(micStream.getAudioTracks()[0], micStream);
+    ttsDest = playCtx.createMediaStreamDestination();
+    b.addTrack(ttsDest.stream.getAudioTracks()[0], ttsDest.stream);
+    player = new PcmPlayer(playCtx, ttsDest);
+    const el = document.createElement("audio");
+    el.autoplay = true;
+    renderEl = el;
+    a.ontrack = (ev) => {
+        el.srcObject = ev.streams[0];
+        el.play().catch(() => addRow("stt", "render autoplay blocked"));
+    };
+    const processed = new Promise((resolve, reject) => {
+        b.ontrack = (ev) => resolve(ev.streams[0]);
+        setTimeout(() => reject(new Error("no processed mic track")), 5000);
+    });
+    const offer = await a.createOffer();
+    await a.setLocalDescription(offer);
+    await b.setRemoteDescription(offer);
+    const answer = await b.createAnswer();
+    await b.setLocalDescription(answer);
+    await a.setRemoteDescription(answer);
+    return processed;
 }
 async function startMic() {
     connectWs();
@@ -238,7 +294,6 @@ async function startMic() {
     playCtx = new AudioContext({ sampleRate: 24000 });
     await captureCtx.resume();
     await playCtx.resume();
-    player = new PcmPlayer(playCtx);
     mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
             echoCancellation: true,
@@ -246,7 +301,24 @@ async function startMic() {
             channelCount: 1,
         },
     });
-    const src = captureCtx.createMediaStreamSource(mediaStream);
+    let processed;
+    if (aec) {
+        try {
+            processed = await setupLoopbackAec(mediaStream);
+            addRow("stt", "aec loopback ok");
+        }
+        catch (err) {
+            addRow("stt", `aec fallback: ${err}`);
+            aec = false;
+            player = new PcmPlayer(playCtx);
+            processed = mediaStream;
+        }
+    }
+    else {
+        player = new PcmPlayer(playCtx);
+        processed = mediaStream;
+    }
+    const src = captureCtx.createMediaStreamSource(processed);
     processor = captureCtx.createScriptProcessor(4096, 1, 1);
     processor.onaudioprocess = (e) => {
         if (!capturing || !ws || ws.readyState !== WebSocket.OPEN || !captureCtx)
@@ -270,11 +342,20 @@ async function startMic() {
         const sock = ws;
         sock?.addEventListener("open", () => sock.send(JSON.stringify({ type: "mic", on: true })), { once: true });
     }
-    log(`mic ${captureCtx.sampleRate} Hz → 16000, play ${playCtx.sampleRate} Hz`);
+    addRow("stt", `mic ${captureCtx.sampleRate} Hz → 16000, play ${playCtx.sampleRate} Hz`);
 }
 function stopMic() {
     capturing = false;
     processor?.disconnect();
+    pcMic?.close();
+    pcTts?.close();
+    pcMic = undefined;
+    pcTts = undefined;
+    ttsDest = undefined;
+    if (renderEl) {
+        renderEl.srcObject = null;
+        renderEl = undefined;
+    }
     mediaStream?.getTracks().forEach((t) => t.stop());
     captureCtx?.close();
     processor = undefined;
@@ -285,11 +366,11 @@ function stopMic() {
         ws.send(JSON.stringify({ type: "mic", on: false }));
     if (uiState !== "speaking" && uiState !== "thinking")
         setState("idle");
-    log("mic stopped");
+    addRow("stt", "mic stopped");
 }
 talkBtn.addEventListener("click", () => {
     startMic().catch((err) => {
-        log(String(err));
+        addRow("stt", String(err));
         setState("error");
     });
 });

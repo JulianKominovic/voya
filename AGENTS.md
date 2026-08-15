@@ -23,6 +23,9 @@ North: voice coding agent ([IDEA.md](IDEA.md)). Don't add file/shell tools, Reac
 # 5080
 cd python && uv sync && uv run python -m speech_server.download_models
 uv run uvicorn speech_server.main:app --host 0.0.0.0 --port 8765
+# Qwen: uv sync --extra qwen   (plain uv sync uninstalls torch)
+# TTS_ENGINE=qwen TTS_VOICE=Serena uv run uvicorn speech_server.main:app --host 0.0.0.0 --port 8888
+```
 
 # Mac (or same machine)
 cd node && npm i && npm start
@@ -47,7 +50,8 @@ cd node && npm i && npm start
 - `python/speech_server/` — FastAPI, `/health`, `/ws/speech-in`, `/ws/tts`
 - `node/src/server.ts` — static files + client WS + Python reconnect
 - `node/src/session.ts` — voice states, `generation_id`, barge-in, TTS one-in-flight
-- `node/src/agents.ts` — orchestrator + agentic mailbox + minions
+- `node/src/agents.ts` — orchestrator + agentic mailbox
+- `node/src/minions.ts` — minion catalog (`MinionDef`)
 - `node/src/questions.ts` — FIFO `ask_user`
 - `node/src/memory.ts` — LLM window + jsonl log
 - `node/src/app.ts` — Chrome UI (`ScriptProcessor`); `tsc` emits `public/app.js`

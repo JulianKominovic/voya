@@ -57,6 +57,14 @@ Forward siempre. Debounce de barge-in = `MIN_SPEECH_MS` en el VAD (default 350).
 
 Capar `max_new_tokens` según el largo del texto (máx 192 ≈ 16 s). `torch.cuda.synchronize()` antes de generar (Whisper/ORT comparten la 5080 con CUDA graphs). En cancel, dejar de pedir chunks en vez de drenar el cap. Loguear `steps`/`peak`; warning si pega el tope. No tratar un EOS perdido como "el STT mandó basura".
 
+### OpenRouter: Provider returned error en el ask agentic
+
+#### Sesión `e78daf75`, turno `aad2`: el orchestrator (`deepseek/deepseek-v4-flash-0731`) armó el `ask` bien. El agentic (`inclusionai/ling-3.0-flash`) falló en ~500 ms con `Provider returned error`. `errMsg` solo mostraba ese string. Repro: Ling **sin** tools → 200 Novita; Ling **con** tools → 429, Novita y DeepInfra en `upstream_provider_shared_pool` (el pool compartido de OpenRouter se acaba en function calling). El orchestrator reintentó `ask` y habló el fallo.
+
+#### Corrección
+
+`errMsg` parsea `statusCode` + `body` del SDK (`429 Novita rate-limited…`). Si `AGENTIC_MODEL` ≠ orchestrator, `streamChat` reintenta una vez con `ORCHESTRATOR_MODEL`.
+
 ### OpenRouter: no endpoint found that support tool use
 
 #### El orchestrator manda `tools` siempre. El default `deepseek/deepseek-chat` (y `sort: latency`) caía en providers sin function calling → 404, y eso se hablaba por TTS.
@@ -64,4 +72,28 @@ Capar `max_new_tokens` según el largo del texto (máx 192 ≈ 16 s). `torch.cud
 #### Corrección
 
 Default `deepseek/deepseek-chat-v3.1`. Con tools, `provider.requireParameters: true` para que OpenRouter solo elija endpoints que acepten `tools`.
+
+### pnpm exec desde el root de voya
+
+#### `pnpm exec tsc` / `pnpm exec tsx` desde `/Users/julian/dev/voya` (no hay `package.json`) hace que pnpm suba de carpeta y ejecute en otro proyecto de la máquina. Falla o typechequea el repo equivocado. `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL`.
+
+#### Corrección
+
+Siempre `working_directory: node/` o `pnpm --dir node …`. El package de Node está en `node/`.
+
+### TTS leyó el system prompt / protocolo de tools
+
+#### El orchestrator (deepseek-v4-flash) metió en `content` el protocolo de `pending_question` y renglones del system (`No inventes el estado de la cola`) más cadena de pensamiento (`Debo…`, `El usuario…`). Node hablaba cada oración en streaming (`onSentence` → TTS) antes de saber si había tool calls. El agentic además usó `ask_user` para esperar al minion, y esa pregunta interna se habló.
+
+#### Corrección
+
+No hablar el `content` de un round si hay tools y ninguna es `ask` (la narración corta sí va con `ask`). Filtrar oraciones que son substring del system, `Instructions:`, o CoT (`Debo` / `El usuario` / `Cuando el usuario` / `Parece que`). Prompt: no leer system/tools; `ask_user` no es para esperar minions.
+
+### Agentic no ve el report del minion → loop de tools
+
+#### Sesión `cd87b954`: el minion `developer` corrió `shell` y `report(done)` con el macOS bien. El mailbox del agentic es serial: ese `minion_done` quedó encolado detrás del `ask` en curso. El agentic no lo vio, spameó `talk_to`/`list_minions` hasta `error: demasiadas herramientas`, y cada `talk_to` encolaba otro `runMinion` (el minion volvía a arrancar y a reportar done). Los dones se procesaron después, con el `ask` ya fallido.
+
+#### Corrección
+
+Si el agentic está en un `ask`, `report(done|status)` se inyecta en el inbox del turno actual (no un job nuevo). `talk_to` no relanza el minion si `busy`. Si llega un done antes de `answer` o al tope de rounds, se devuelve ese texto. Prompt: no pinguear minions con `talk_to`/`list_minions`.
 

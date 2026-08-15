@@ -24,7 +24,7 @@
         color: var(--text);
       }
       main {
-        max-width: 720px;
+        max-width: 1160px;
         margin: 0 auto;
         padding: 24px 16px 48px;
       }
@@ -96,16 +96,42 @@
       }
       #question { color: var(--warn); min-height: 36px; }
       #log {
-        height: 220px;
+        height: 360px;
         overflow: auto;
         background: var(--panel);
         border: 1px solid var(--line);
         border-radius: 8px;
-        padding: 8px 10px;
         font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
         color: var(--muted);
-        white-space: pre-wrap;
       }
+      #log table { width: 100%; border-collapse: collapse; }
+      #log th, #log td {
+        text-align: left;
+        padding: 3px 8px;
+        border-bottom: 1px solid var(--line);
+        vertical-align: top;
+      }
+      #log thead th {
+        position: sticky;
+        top: 0;
+        background: var(--panel);
+        color: var(--text);
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        z-index: 1;
+      }
+      #log td.time { white-space: nowrap; font-variant-numeric: tabular-nums; }
+      #log td.evt {
+        max-width: 280px;
+        overflow-wrap: anywhere;
+      }
+      #log td.stt { color: var(--warn); }
+      #log td.llm_conv { color: #93c5fd; }
+      #log td.llm_agentic { color: #c4b5fd; }
+      #log td.minions { color: var(--accent); }
+      #log td.tts { color: #f9a8d4; }
     </style>
   </head>
   <body>
@@ -133,7 +159,21 @@
       <div class="out" id="transcript">—</div>
       <div class="out" id="question" title="pending question">—</div>
       <div class="out" id="assistant">—</div>
-      <div id="log"></div>
+      <div id="log">
+        <table>
+          <thead>
+            <tr>
+              <th>datetime</th>
+              <th>STT</th>
+              <th>LLM Conversacional</th>
+              <th>LLM Agentico</th>
+              <th>Minions</th>
+              <th>TTS</th>
+            </tr>
+          </thead>
+          <tbody id="log-body"></tbody>
+        </table>
+      </div>
     </main>
     <script src="/app.js"></script>
   </body>
