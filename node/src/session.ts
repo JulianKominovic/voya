@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { OpenRouter } from "@openrouter/sdk";
 import { WebSocket } from "ws";
+import type { Llm } from "./llm.js";
 import { Brain, ORCH_SYSTEM } from "./agents.js";
 import {
   ECHO_MIN_MS,
@@ -121,7 +121,7 @@ export class Session {
 
   constructor(
     readonly client: WebSocket,
-    readonly openrouter: OpenRouter | null,
+    readonly llm: Llm | null,
   ) {
     this.id = randomUUID().slice(0, 8);
     this.memory = new Memory(LOG_DIR, this.id, ORCH_SYSTEM);

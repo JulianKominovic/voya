@@ -30,18 +30,16 @@ function loadEnv(file: string) {
 
 loadEnv(path.join(__dirname, "../.env"));
 
-export const PUBLIC = path.resolve(path.join(__dirname, "../public"));
+export const PUBLIC = path.resolve(path.join(__dirname, "../../frontend/dist"));
 export const LOG_DIR = path.resolve(path.join(__dirname, "../logs"));
 export const PORT = Number(process.env.PORT || 8787);
 export const SPEECH_URL = process.env.SPEECH_URL || "ws://127.0.0.1:8765/ws/speech-in";
 export const TTS_URL = process.env.TTS_URL || "ws://127.0.0.1:8765/ws/tts";
 export const TTS_VOICE = process.env.TTS_VOICE || "ef_dora";
 export const TTS_LANG = process.env.TTS_LANG || "es";
-export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
-export const ORCHESTRATOR_MODEL =
-  process.env.ORCHESTRATOR_MODEL || process.env.OPENROUTER_MODEL || "deepseek/deepseek-chat-v3.1";
+export const LLM_URL = process.env.LLM_URL || "http://192.168.0.29:8080/v1";
+export const ORCHESTRATOR_MODEL = process.env.ORCHESTRATOR_MODEL || "ggml-org/gemma-4-E4B-it-GGUF";
 export const AGENTIC_MODEL = process.env.AGENTIC_MODEL || ORCHESTRATOR_MODEL;
-export const OPENROUTER_MODEL = ORCHESTRATOR_MODEL;
 
 export const QUESTION_TIMEOUT_MS = Number(process.env.QUESTION_TIMEOUT_MS || 60 * 60 * 1000);
 export const ASK_TIMEOUT_MS = Number(process.env.ASK_TIMEOUT_MS || 10 * 60 * 1000);

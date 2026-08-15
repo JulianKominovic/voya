@@ -57,6 +57,14 @@ Forward siempre. Debounce de barge-in = `MIN_SPEECH_MS` en el VAD (default 350).
 
 Capar `max_new_tokens` según el largo del texto (máx 192 ≈ 16 s). `torch.cuda.synchronize()` antes de generar (Whisper/ORT comparten la 5080 con CUDA graphs). En cancel, dejar de pedir chunks en vez de drenar el cap. Loguear `steps`/`peak`; warning si pega el tope. No tratar un EOS perdido como "el STT mandó basura".
 
+### Qwen: greedy (do_sample=False) degenera → cap de tokens, silencio y ruido
+
+#### El fix del cap de arriba era un parche: la causa raíz era `do_sample=False`. Forzar greedy en `tts_qwen.py` (predictor_graph + streaming) hizo que Qwen3-TTS-12Hz-0.6B casi nunca emitiera EOS: 9/12 frases pegaron `max_new_tokens` con output silencioso (`peak=0.000`) o ruido, y solo las que generaron EOS natural ("qwen done") sonaron bien. El usuario escuchó frases truncadas → ruido → nada. `sample_logits(do_sample=False)` = `argmax`; el modelo fue entrenado con sampling (default de la librería: `do_sample=True`, temp 0.9, top_k 50, rep_penalty 1.05).
+
+#### Corrección
+
+Sacar `do_sample=False` de `tts_qwen.py` (el atributo `predictor_graph.do_sample` y el kwarg de `generate_custom_voice_streaming`). Ojo: greedy no era capricho — con sampling a 0.9 (default de la librería) el modelo **gemía** (artefactos). Punto medio: `TTS_TEMPERATURE=0.6` (env, default), aplicado al primer codebook (streaming) y al predictor (se hornea en el capture del CUDA graph, antes de `warmup()`). Mantener el cap como red de seguridad. Si vuelve a gemir, bajar la temperatura; si se corta sin EOS, subirla.
+
 ### OpenRouter: Provider returned error en el ask agentic
 
 #### Sesión `e78daf75`, turno `aad2`: el orchestrator (`deepseek/deepseek-v4-flash-0731`) armó el `ask` bien. El agentic (`inclusionai/ling-3.0-flash`) falló en ~500 ms con `Provider returned error`. `errMsg` solo mostraba ese string. Repro: Ling **sin** tools → 200 Novita; Ling **con** tools → 429, Novita y DeepInfra en `upstream_provider_shared_pool` (el pool compartido de OpenRouter se acaba en function calling). El orchestrator reintentó `ask` y habló el fallo.

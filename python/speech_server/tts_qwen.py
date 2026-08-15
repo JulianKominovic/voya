@@ -12,6 +12,7 @@ from speech_server.config import (
     SAMPLE_RATE_TTS,
     TTS_LANG,
     TTS_MODEL,
+    TTS_TEMPERATURE,
     TTS_VOICE,
 )
 
@@ -76,8 +77,9 @@ class QwenTTS:
             dtype=torch.bfloat16,
             attn_implementation="sdpa",
         )
-        # CUDA graph for the 15 codebooks bakes sampling at capture time.
-        self.model.predictor_graph.do_sample = False
+        # Sampling (not greedy) so the model emits EOS; conservative temperature
+        # so it doesn't moan. The predictor graph bakes temperature at capture.
+        self.model.predictor_graph.temperature = TTS_TEMPERATURE
         self.model.warmup()
         base = self.model.model
         speakers = list(base.get_supported_speakers())
@@ -88,10 +90,11 @@ class QwenTTS:
         self.default_lang = self._language(TTS_LANG)
         self._lock = asyncio.Lock()
         log.info(
-            "qwen ready speakers=%s default_voice=%s lang=%s greedy",
+            "qwen ready speakers=%s default_voice=%s lang=%s temperature=%.2f",
             speakers,
             self.default_voice,
             self.default_lang,
+            TTS_TEMPERATURE,
         )
 
     def _speaker(self, voice: str) -> str:
@@ -133,7 +136,7 @@ class QwenTTS:
                     text=text,
                     language=language,
                     speaker=speaker,
-                    do_sample=False,
+                    temperature=TTS_TEMPERATURE,
                     chunk_size=CHUNK_SIZE,
                     max_new_tokens=max_tokens,
                 ):

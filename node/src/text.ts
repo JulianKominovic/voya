@@ -133,6 +133,6 @@ export function sleep(msWait: number) {
     }),
   });
   if (errMsg(orErr) !== "Provider returned error: 429 Novita rate-limited upstream") {
-    throw new Error("errMsg openrouter");
+    throw new Error("errMsg");
   }
 }

@@ -43,7 +43,10 @@ Starts on CUDA or fails. No CPU fallback.
 On the Mac (or local):
 
 ```bash
-cd node
+cd frontend
+npm i
+npm run build
+cd ../node
 npm i
 SPEECH_URL=ws://<ip-5080>:8765/ws/speech-in \
 TTS_URL=ws://<ip-5080>:8765/ws/tts \
@@ -97,7 +100,7 @@ TTS_URL=ws://<ip-5080>:8765/ws/tts npm start
 | VAD | threshold `0.5`, min speech 350 ms, silence 700 ms, pre-roll 300 ms | `VAD_THRESHOLD`, `MIN_SPEECH_MS`, `MIN_SILENCE_MS`, `PREROLL_MS` |
 | TTS | engine `kokoro`, voice `ef_dora`, lang `es` | `TTS_ENGINE`, `TTS_VOICE`, `TTS_LANG`, `TTS_MODEL` |
 | models | `python/models` | `MODELS_DIR` |
-| LLM | OpenRouter. Conversational: `ORCHESTRATOR_MODEL` (alias `OPENROUTER_MODEL`). Agentic+minions: `AGENTIC_MODEL` (defaults to the conversational one). Default `deepseek/deepseek-chat-v3.1`. Set in `node/.env`. | `OPENROUTER_API_KEY`, `ORCHESTRATOR_MODEL`, `AGENTIC_MODEL` |
+| LLM | llama.cpp local (OpenAI-compatible). Conversational: `ORCHESTRATOR_MODEL`. Agentic+minions: `AGENTIC_MODEL` (defaults to the conversational one). Default `ggml-org/gemma-4-E4B-it-GGUF`. Set in `node/.env`. | `LLM_URL`, `ORCHESTRATOR_MODEL`, `AGENTIC_MODEL` |
 | FLOW | question 60 min, ask 10 min | `QUESTION_TIMEOUT_MS`, `ASK_TIMEOUT_MS` |
 
 A `WHISPER_DEVICE` other than `cuda` aborts the process.
@@ -113,4 +116,4 @@ A `WHISPER_DEVICE` other than `cuda` aborts the process.
 - `node/src/server.ts` — HTTP + client WS + Python reconnect
 - `node/src/session.ts` — voice state machine, barge-in, TTS one-in-flight
 - `node/src/agents.ts` — orchestrator / agentic / minions
-- `node/src/app.ts` — Chrome UI (ScriptProcessor, not AudioWorklet); compiled to `public/app.js`
+- `node/src/app.ts` → `frontend/` — Chrome UI (ScriptProcessor, not AudioWorklet); React + esbuild + Tailwind, `npm run build` emits `dist/` (served by Node)

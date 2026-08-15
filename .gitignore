@@ -15,3 +15,6 @@ node/.env
 node/logs/
 node/.npm-cache/
 node/.npm-cache
+
+frontend/dist/
+frontend/node_modules/

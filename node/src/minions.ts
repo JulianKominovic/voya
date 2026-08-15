@@ -1,10 +1,10 @@
-import type { ChatFunctionToolFunction } from "@openrouter/sdk/models";
+import type { ApiTool } from "./llm.js";
 import { exec } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-export type MinionTool = ChatFunctionToolFunction & {
+export type MinionTool = ApiTool & {
   exec: (args: Record<string, unknown>) => Promise<string>;
 };
 
@@ -16,7 +16,7 @@ export type MinionDef = {
   tools: MinionTool[];
 };
 
-export function toOrTool({ exec: _exec, ...t }: MinionTool): ChatFunctionToolFunction {
+export function toApiTool({ exec: _exec, ...t }: MinionTool): ApiTool {
   return t;
 }
 

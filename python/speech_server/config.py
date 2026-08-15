@@ -25,6 +25,9 @@ TTS_ENGINE = os.environ.get("TTS_ENGINE", "kokoro").strip().lower()
 TTS_MODEL = os.environ.get("TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice")
 TTS_VOICE = os.environ.get("TTS_VOICE", "ef_dora")
 TTS_LANG = os.environ.get("TTS_LANG", "es")
+# Sampling temperature for the first codebook (EOS decision). 0.9 = library
+# default (moans); greedy = argmax (no EOS -> truncated/silent audio).
+TTS_TEMPERATURE = float(os.environ.get("TTS_TEMPERATURE", "0.6"))
 
 SAMPLE_RATE_IN = 16000
 SAMPLE_RATE_TTS = 24000

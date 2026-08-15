@@ -28,12 +28,13 @@ uv run uvicorn speech_server.main:app --host 0.0.0.0 --port 8765
 ```
 
 # Mac (or same machine)
-cd node && npm i && npm start
+cd frontend && npm i && npm run build
+cd ../node && npm i && npm start
 # another machine: SPEECH_URL=ws://<ip-5080>:8765/ws/speech-in TTS_URL=ws://<ip-5080>:8765/ws/tts npm start
 ```
 
 - Node: [http://127.0.0.1:8787](http://127.0.0.1:8787). Python: `GET /health` — `vad_providers` / `tts_providers` must include `CUDAExecutionProvider`.
-- `python/models/` isn't committed. Env: `python/speech_server/config.py`. Node env: `node/.env` (`OPENROUTER_API_KEY`, `ORCHESTRATOR_MODEL`, `AGENTIC_MODEL`).
+- `python/models/` isn't committed. Env: `python/speech_server/config.py`. Node env: `node/.env` (`LLM_URL`, `ORCHESTRATOR_MODEL`, `AGENTIC_MODEL`).
 - Session jsonl: `node/logs/` (gitignored).
 
 ## Contracts
@@ -48,18 +49,18 @@ cd node && npm i && npm start
 ## Layout
 
 - `python/speech_server/` — FastAPI, `/health`, `/ws/speech-in`, `/ws/tts`
-- `node/src/server.ts` — static files + client WS + Python reconnect
+- `node/src/server.ts` — HTTP static (serves `frontend/dist`) + client WS + Python reconnect
 - `node/src/session.ts` — voice states, `generation_id`, barge-in, TTS one-in-flight
 - `node/src/agents.ts` — orchestrator + agentic mailbox
 - `node/src/minions.ts` — minion catalog (`MinionDef`)
 - `node/src/questions.ts` — FIFO `ask_user`
 - `node/src/memory.ts` — LLM window + jsonl log
-- `node/src/app.ts` — Chrome UI (`ScriptProcessor`); `tsc` emits `public/app.js`
+- `frontend/` — React + esbuild + Tailwind (`src/App.tsx` keeps the Chrome UI, `ScriptProcessor`); `npm run build` emits `dist/`
 
 ## Style
 
 - Python 3.11+, `from __future__ import annotations`, config via env.
-- Node ESM + TypeScript (`tsx`). Frontend without bundler (`tsc` → `public/app.js`).
+- Node ESM + TypeScript (`tsx`). Frontend: React + esbuild + Tailwind (`frontend/`, no bundler framework).
 - Minimal: no new deps if stdlib suffices; the shortest diff wins.
 - Ponytail (`.cursor/skills/ponytail/`) if they ask for lazy / yagni / ponytail.
 - Agent errors: update `.cursor/skills/apredizajes/SKILL.md`.

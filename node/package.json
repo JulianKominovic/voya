@@ -3,13 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsc -p tsconfig.app.json && tsx src/server.ts"
+    "start": "tsx src/server.ts"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
-    "@openrouter/sdk": "^1.2.34",
     "ws": "^8.18.3"
   },
   "devDependencies": {

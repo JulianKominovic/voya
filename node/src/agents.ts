@@ -1,17 +1,18 @@
-import type { OpenRouter } from "@openrouter/sdk";
 import { randomUUID } from "node:crypto";
+import type { ApiMessage, ApiTool, Llm } from "./llm.js";
 import {
   AGENTIC_MAX_ROUNDS,
   AGENTIC_MODEL,
   ANSWER_MAX_CHARS,
   ASK_TIMEOUT_MS,
   CHAIN_MAX_DEPTH,
+  LLM_URL,
   ORCHESTRATOR_MODEL,
   SESSION_MAX_LLM_CHARS,
   WINDOW_CHARS,
 } from "./config.js";
 import type { Msg, ToolCall } from "./memory.js";
-import { MINIONS, toOrTool, type MinionDef } from "./minions.js";
+import { MINIONS, toApiTool, type MinionDef } from "./minions.js";
 import type { Session } from "./session.js";
 import { aborted, errMsg, forTts, now, takeSentences, truncate } from "./text.js";
 
@@ -106,30 +107,6 @@ function deltaText(chunk: unknown): string {
   return typeof c === "string" ? c : "";
 }
 
-function chunkMeta(chunk: unknown): { provider: string; strategy: string } {
-  if (!chunk || typeof chunk !== "object") return { provider: "", strategy: "" };
-  const o = chunk as Record<string, unknown>;
-  let provider = typeof o.provider === "string" ? o.provider : "";
-  let strategy = "";
-  const meta = (o.openrouterMetadata ?? o.openrouter_metadata) as
-    | {
-        strategy?: unknown;
-        attempts?: Array<{ provider?: unknown }>;
-        endpoints?: { available?: Array<{ provider?: unknown; selected?: unknown }> };
-      }
-    | undefined;
-  if (meta && typeof meta === "object") {
-    if (typeof meta.strategy === "string") strategy = meta.strategy;
-    const sel = meta.endpoints?.available?.find((e) => e.selected === true)?.provider;
-    if (typeof sel === "string") provider = sel;
-    else {
-      const p = meta.attempts?.[0]?.provider;
-      if (typeof p === "string") provider = p;
-    }
-  }
-  return { provider, strategy };
-}
-
 function deltaToolDeltas(chunk: unknown) {
   if (!chunk || typeof chunk !== "object") return [];
   const choices = (
@@ -142,16 +119,16 @@ function deltaToolDeltas(chunk: unknown) {
   return Array.isArray(tcs) ? tcs : [];
 }
 
-function toOrMessages(messages: Msg[]) {
+function toApiMessages(messages: Msg[]): ApiMessage[] {
   return messages.map((m) => {
     if (m.role === "tool") {
-      return { role: "tool", content: m.content ?? "", toolCallId: m.tool_call_id };
+      return { role: "tool", content: m.content ?? "", tool_call_id: m.tool_call_id };
     }
     if (m.tool_calls?.length) {
       return {
-        role: "assistant" as const,
+        role: "assistant",
         content: m.content,
-        toolCalls: m.tool_calls.map((t) => ({
+        tool_calls: m.tool_calls.map((t) => ({
           id: t.id,
           type: "function" as const,
           function: t.function,
@@ -193,16 +170,16 @@ function withTimeout<T>(p: Promise<T>, msWait: number, label: string): Promise<T
 type AccTool = { id: string; name: string; arguments: string };
 
 async function streamChat(opts: {
-  openrouter: OpenRouter;
+  llm: Llm;
   model: string;
   fallbackModel?: string;
   messages: Msg[];
   tools?: unknown[];
   signal?: AbortSignal;
   onSentence?: (s: string) => void;
-  onFirstToken?: (provider: string) => void;
+  onFirstToken?: () => void;
   onFallback?: (err: unknown, model: string) => void;
-}): Promise<{ text: string; toolCalls: AccTool[]; provider: string; strategy: string }> {
+}): Promise<{ text: string; toolCalls: AccTool[] }> {
   try {
     return await streamChatOnce(opts);
   } catch (err) {
@@ -214,48 +191,33 @@ async function streamChat(opts: {
 }
 
 async function streamChatOnce(opts: {
-  openrouter: OpenRouter;
+  llm: Llm;
   model: string;
   messages: Msg[];
   tools?: unknown[];
   signal?: AbortSignal;
   onSentence?: (s: string) => void;
-  onFirstToken?: (provider: string) => void;
-}): Promise<{ text: string; toolCalls: AccTool[]; provider: string; strategy: string }> {
-  const stream = (await opts.openrouter.chat.send(
-    {
-      xOpenRouterMetadata: "enabled",
-      chatRequest: {
-        model: opts.model,
-        messages: toOrMessages(opts.messages) as never,
-        stream: true,
-        provider: {
-          sort: "latency",
-          ...(opts.tools?.length ? { requireParameters: true } : {}),
-        },
-        ...(opts.tools?.length ? { tools: opts.tools as never } : {}),
-      },
-    },
-    opts.signal ? { signal: opts.signal } : {},
-  )) as AsyncIterable<unknown>;
+  onFirstToken?: () => void;
+}): Promise<{ text: string; toolCalls: AccTool[] }> {
+  const stream = opts.llm.chat({
+    model: opts.model,
+    messages: toApiMessages(opts.messages),
+    tools: opts.tools as ApiTool[] | undefined,
+    signal: opts.signal,
+  });
 
   let buf = "";
   let full = "";
-  let provider = "";
-  let strategy = "";
   let first = false;
   const acc: AccTool[] = [];
 
   for await (const chunk of stream) {
     if (opts.signal?.aborted) break;
-    const meta = chunkMeta(chunk);
-    if (meta.provider) provider = meta.provider;
-    if (meta.strategy) strategy = meta.strategy;
     const piece = deltaText(chunk);
     if (piece) {
       if (!first) {
         first = true;
-        opts.onFirstToken?.(provider);
+        opts.onFirstToken?.();
       }
       buf += piece;
       full += piece;
@@ -285,7 +247,7 @@ async function streamChatOnce(opts: {
   }
   const toolCalls = acc.filter((t) => t.name);
   for (const t of toolCalls) if (!t.id) t.id = randomUUID();
-  return { text: full, toolCalls, provider, strategy };
+  return { text: full, toolCalls };
 }
 
 function asToolCalls(calls: AccTool[]): ToolCall[] {
@@ -338,7 +300,7 @@ export class Brain {
 
   async compactIfNeeded() {
     const mem = this.s.memory;
-    if (!mem.overBudget() || !this.s.openrouter) return;
+    if (!mem.overBudget() || !this.s.llm) return;
     const keep = 4;
     const old = mem.messages.slice(1, -keep);
     if (!old.length) return;
@@ -348,7 +310,7 @@ export class Brain {
       .slice(0, WINDOW_CHARS);
     try {
       const { text } = await streamChat({
-        openrouter: this.s.openrouter,
+        llm: this.s.llm,
         model: ORCHESTRATOR_MODEL,
         messages: [
           {
@@ -368,8 +330,8 @@ export class Brain {
 
   async runOrchestrator(userText: string, gen: number) {
     const s = this.s;
-    if (!s.openrouter) {
-      s.speakError("OPENROUTER_API_KEY missing in node/.env", gen);
+    if (!s.llm) {
+      s.speakError("LLM_URL missing in node/.env", gen);
       s.llmBusy = false;
       s.maybeFinishTurn();
       return;
@@ -388,27 +350,20 @@ export class Brain {
     const pending = s.questions.head()?.text;
     const messages = s.memory.window(pending);
     const t0 = now();
-    s.logTurn(`llm start model=${ORCHESTRATOR_MODEL} sort=latency`, "llm_conv");
+    s.logTurn(`llm start model=${ORCHESTRATOR_MODEL} url=${LLM_URL}`, "llm_conv");
     let full = "";
-    let provider = "";
-    let strategy = "";
     try {
       while (true) {
         if (ac.signal.aborted || s.gen !== gen) return;
-        const { text, toolCalls, provider: p, strategy: st } = await streamChat({
-          openrouter: s.openrouter,
+        const { text, toolCalls } = await streamChat({
+          llm: s.llm,
           model: ORCHESTRATOR_MODEL,
           messages,
           tools: ORCH_TOOLS,
           signal: ac.signal,
-          onFirstToken: (prov) =>
-            s.logTurn(
-              `llm first_token_ms=${Math.round(now() - t0)}${prov ? ` provider=${prov}` : ""}`,
-              "llm_conv",
-            ),
+          onFirstToken: () =>
+            s.logTurn(`llm first_token_ms=${Math.round(now() - t0)}`, "llm_conv"),
         });
-        provider = p;
-        strategy = st;
         full += text;
         s.memory.addChars(text.length);
         if (ac.signal.aborted || s.gen !== gen) {
@@ -444,10 +399,7 @@ export class Brain {
       if (aborted(err) || ac.signal.aborted || s.gen !== gen) return;
       s.speakError(errMsg(err), gen);
     } finally {
-      s.logTurn(
-        `llm done total_ms=${Math.round(now() - t0)} chars=${full.length}${provider ? ` provider=${provider}${strategy ? `/${strategy}` : ""}` : ""}`,
-        "llm_conv",
-      );
+      s.logTurn(`llm done total_ms=${Math.round(now() - t0)} chars=${full.length}`, "llm_conv");
       if (s.llmAbort === ac) {
         s.llmAbort = null;
         s.llmBusy = false;
@@ -547,14 +499,14 @@ export class Brain {
         "llm_agentic",
       );
       if (job.chain.length > CHAIN_MAX_DEPTH) return "error: profundidad máxima de cadena";
-      if (!s.openrouter) return "error: no hay LLM";
+      if (!s.llm) return "error: no hay LLM";
       const user = jobUser(job);
       this.agenticMsgs.push({ role: "user", content: user });
       s.memory.addChars(user.length);
       for (let round = 0; round < AGENTIC_MAX_ROUNDS; round++) {
         this.drainInbox();
-        const { text, toolCalls, provider } = await streamChat({
-          openrouter: s.openrouter,
+        const { text, toolCalls } = await streamChat({
+          llm: s.llm,
           model: AGENTIC_MODEL,
           fallbackModel: AGENTIC_MODEL === ORCHESTRATOR_MODEL ? undefined : ORCHESTRATOR_MODEL,
           messages: this.agenticMsgs,
@@ -563,7 +515,7 @@ export class Brain {
             s.logTurn(`agentic fallback model=${model} after ${errMsg(err)}`, "llm_agentic"),
         });
         s.memory.addChars(text.length);
-        s.memory.log({ type: "agentic_round", round, text, tools: toolCalls.map((t) => t.name), provider });
+        s.memory.log({ type: "agentic_round", round, text, tools: toolCalls.map((t) => t.name) });
         s.logTurn(
           `agentic round=${round} tools=${toolCalls.map((t) => t.name).join(",") || "-"}`,
           "llm_agentic",
@@ -681,17 +633,17 @@ export class Brain {
     const s = this.s;
     m.busy = true;
     try {
-      if (m.killed || !s.openrouter) return;
+      if (m.killed || !s.llm) return;
       const chain = [...parentChain, m.id];
       const tools = [
         REPORT_TOOL,
-        ...m.def.tools.map(toOrTool),
+        ...m.def.tools.map(toApiTool),
       ];
       s.memory.log({ type: "minion_run", id: m.id, kind: m.def.id, chain });
       s.logTurn(`minion run id=${m.id} kind=${m.def.id} task=${truncate(m.task, 100)}`, "minions");
       for (let round = 0; round < AGENTIC_MAX_ROUNDS && !m.killed; round++) {
-        const { text, toolCalls, provider } = await streamChat({
-          openrouter: s.openrouter,
+        const { text, toolCalls } = await streamChat({
+          llm: s.llm,
           model: AGENTIC_MODEL,
           fallbackModel: AGENTIC_MODEL === ORCHESTRATOR_MODEL ? undefined : ORCHESTRATOR_MODEL,
           messages: m.messages,
@@ -700,7 +652,7 @@ export class Brain {
             s.logTurn(`minion fallback id=${m.id} model=${model} after ${errMsg(err)}`, "minions"),
         });
         s.memory.addChars(text.length);
-        s.memory.log({ type: "minion_round", id: m.id, round, provider });
+        s.memory.log({ type: "minion_round", id: m.id, round });
         s.logTurn(
           `minion round id=${m.id} round=${round} tools=${toolCalls.map((t) => t.name).join(",") || "-"}`,
           "minions",

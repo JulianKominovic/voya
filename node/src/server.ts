@@ -2,10 +2,10 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { WebSocketServer } from "ws";
-import { OpenRouter } from "@openrouter/sdk";
+import { Llm } from "./llm.js";
 import {
   AGENTIC_MODEL,
-  OPENROUTER_API_KEY,
+  LLM_URL,
   ORCHESTRATOR_MODEL,
   PORT,
   PUBLIC,
@@ -16,9 +16,7 @@ import { Session } from "./session.js";
 import { errMsg, sleep } from "./text.js";
 import { openSocket, sendJson } from "./wsutil.js";
 
-const openrouter = OPENROUTER_API_KEY
-  ? new OpenRouter({ apiKey: OPENROUTER_API_KEY })
-  : null;
+const llm = new Llm(LLM_URL);
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -57,9 +55,9 @@ const server = http.createServer((req, res) => {
         ok: true,
         speech: SPEECH_URL,
         tts: TTS_URL,
-        llm: Boolean(openrouter),
-        orchestrator: openrouter ? ORCHESTRATOR_MODEL : null,
-        agentic: openrouter ? AGENTIC_MODEL : null,
+        llm: Boolean(LLM_URL),
+        orchestrator: ORCHESTRATOR_MODEL,
+        agentic: AGENTIC_MODEL,
       }),
     );
     return;
@@ -70,7 +68,7 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server, path: "/ws" });
 
 wss.on("connection", async (client) => {
-  const session = new Session(client, openrouter);
+  const session = new Session(client, llm);
   let reconnecting = false;
 
   const closeUp = () => session.destroy();
@@ -157,7 +155,7 @@ wss.on("connection", async (client) => {
   sendJson(client, {
     type: "ready",
     echo: session.echo,
-    llm: Boolean(openrouter),
+    llm: Boolean(LLM_URL),
     orchestrator: ORCHESTRATOR_MODEL,
     agentic: AGENTIC_MODEL,
   });
@@ -165,7 +163,7 @@ wss.on("connection", async (client) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  const llm = openrouter ? `orch=${ORCHESTRATOR_MODEL} agentic=${AGENTIC_MODEL}` : "off";
+  const llm = LLM_URL ? `orch=${ORCHESTRATOR_MODEL} agentic=${AGENTIC_MODEL}` : "off";
   console.log(`voya bff http://0.0.0.0:${PORT}  speech=${SPEECH_URL}  tts=${TTS_URL}  llm=${llm}`);
   console.log("use headphones — mic is always forwarded (barge-in); speakers still leak");
 });
